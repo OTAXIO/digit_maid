@@ -19,6 +19,7 @@ class PetWindow(QWidget):
         
         # 简单状态：眨眼动画
         self.is_blinking = False
+        self.is_excited = False
         self.blink_timer = QTimer(self)
         self.blink_timer.timeout.connect(self.blink)
         self.blink_timer.start(3000) # 每3秒眨一次眼
@@ -48,6 +49,18 @@ class PetWindow(QWidget):
             painter.setPen(QPen(QColor(0, 0, 0), 3))
             painter.drawLine(35, 55, 65, 55)
             painter.drawLine(85, 55, 115, 55)
+        elif self.is_excited:
+            # 开心 ( > < )
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(QPen(QColor(0, 0, 0), 3))
+            
+            # 左眼
+            painter.drawLine(35, 45, 65, 55)
+            painter.drawLine(35, 65, 65, 55)
+            
+            # 右眼
+            painter.drawLine(85, 55, 115, 45)
+            painter.drawLine(85, 55, 115, 65)
         else:
             # 睁眼 (眼白)
             painter.setPen(Qt.PenStyle.NoPen)
@@ -79,9 +92,19 @@ class PetWindow(QWidget):
         self.is_blinking = False
         self.update()
 
+    def restore_expression(self):
+        self.is_excited = False
+        self.update()
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            
+            # 点击反馈：变成开心表情
+            self.is_excited = True
+            self.update()
+            QTimer.singleShot(800, self.restore_expression)
+            
         elif event.button() == Qt.MouseButton.RightButton:
             self.showContextMenu(event)
 
