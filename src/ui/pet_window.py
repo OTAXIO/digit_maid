@@ -1,14 +1,12 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QMenu, QApplication
-from PyQt6.QtCore import Qt, QPoint, QSize, QTimer
-from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QAction, QCursor
+from PyQt6.QtWidgets import QWidget, QApplication
+from PyQt6.QtCore import Qt, QPoint, QTimer
+from PyQt6.QtGui import QPainter
 import sys
-import os
 
-# 导入功能模块
-# 为了方便导入，可以在这里临时添加一下路径，或者在 main 中处理
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from src.function import organizer, screen_shot, open_app
+# 导入分离后的UI模块
+from .dialogue import DialogueSystem
+from .action import PetActions
+from .expression import PetPainter
 
 class PetWindow(QWidget):
     def __init__(self):
@@ -17,9 +15,16 @@ class PetWindow(QWidget):
         self.initUI()
         self.offset = QPoint()
         
-        # 简单状态：眨眼动画
+        # 简单状态
         self.is_blinking = False
         self.is_excited = False
+        
+        # 初始化各个子系统
+        self.dialogue_system = DialogueSystem(self)
+        self.pet_actions = PetActions(self, self.dialogue_system)
+        self.pet_painter = PetPainter()
+
+        # 眨眼动画定时器
         self.blink_timer = QTimer(self)
         self.blink_timer.timeout.connect(self.blink)
         self.blink_timer.start(3000) # 每3秒眨一次眼
@@ -34,54 +39,14 @@ class PetWindow(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # 画身体 (圆形)
-        painter.setBrush(QBrush(QColor(100, 149, 237))) # CornflowerBlue
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(0, 0, 150, 150)
-
-        # 画眼睛
-        painter.setBrush(QBrush(QColor(255, 255, 255)))
-        if self.is_blinking:
-            # 闭眼
-            painter.setBrush(QBrush(QColor(100, 149, 237))) # 身体颜色遮挡
-            painter.setPen(QPen(QColor(0, 0, 0), 3))
-            painter.drawLine(35, 55, 65, 55)
-            painter.drawLine(85, 55, 115, 55)
-        elif self.is_excited:
-            # 开心 ( > < )
-            painter.setBrush(Qt.BrushStyle.NoBrush)
-            painter.setPen(QPen(QColor(0, 0, 0), 3))
-            
-            # 左眼
-            painter.drawLine(35, 45, 65, 55)
-            painter.drawLine(35, 65, 65, 55)
-            
-            # 右眼
-            painter.drawLine(85, 55, 115, 45)
-            painter.drawLine(85, 55, 115, 65)
-        else:
-            # 睁眼 (眼白)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawEllipse(35, 40, 30, 30)
-            painter.drawEllipse(85, 40, 30, 30)
-            
-            # 眼珠
-            painter.setBrush(QBrush(QColor(0, 0, 0)))
-            painter.drawEllipse(45, 48, 10, 10)
-            painter.drawEllipse(95, 48, 10, 10)
-
-        # 画嘴巴
-        painter.setPen(QPen(QColor(0, 0, 0), 3))
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawArc(50, 70, 50, 30, 0, -180 * 16)
         
-        # 画腮红
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QBrush(QColor(255, 192, 203, 150))) # 粉色半透明
-        painter.drawEllipse(20, 70, 20, 10)
-        painter.drawEllipse(110, 70, 20, 10)
+        # 收集当前状态传输给绘制器
+        current_state = {
+            "is_blinking": self.is_blinking,
+            "is_excited": self.is_excited
+        }
+        
+        self.pet_painter.paint(painter, self.width(), self.height(), current_state)
 
     def blink(self):
         self.is_blinking = True
@@ -106,56 +71,12 @@ class PetWindow(QWidget):
             QTimer.singleShot(800, self.restore_expression)
             
         elif event.button() == Qt.MouseButton.RightButton:
-            self.showContextMenu(event)
+            # 委托 action 模块处理右键菜单
+            self.pet_actions.show_context_menu(event.globalPosition().toPoint())
 
     def mouseMoveEvent(self, event):
         if event.buttons() & Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self.offset)
-
-    def showContextMenu(self, event):
-        menu = QMenu(self)
-        
-        # 整理桌面
-        action_organize = QAction('整理桌面', self)
-        action_organize.triggered.connect(self.do_organize)
-        menu.addAction(action_organize)
-
-        # 截图/识别屏幕
-        action_screenshot = QAction('识别屏幕 (截图)', self)
-        action_screenshot.triggered.connect(self.do_screenshot)
-        menu.addAction(action_screenshot)
-
-        # 打开常用软件子菜单
-        app_menu = menu.addMenu("打开软件")
-        
-        apps = ["计算器", "记事本", "终端"]
-        for app in apps:
-            action = QAction(app, self)
-            action.triggered.connect(lambda checked, a=app: self.do_open_app(a))
-            app_menu.addAction(action)
-
-        menu.addSeparator()
-        
-        action_quit = QAction('退出', self)
-        action_quit.triggered.connect(QApplication.instance().quit)
-        menu.addAction(action_quit)
-
-        menu.exec(event.globalPosition().toPoint())
-
-    def do_organize(self):
-        print("正在整理桌面...")
-        result = organizer.organize_desktop()
-        print(result)
-
-    def do_screenshot(self):
-        print("正在识别屏幕...")
-        result = screen_shot.capture_screen_content()
-        print(result)
-
-    def do_open_app(self, app_name):
-        print(f"正在打开 {app_name}...")
-        result = open_app.open_application(app_name)
-        print(result)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
