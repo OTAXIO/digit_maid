@@ -9,11 +9,19 @@ from .action import PetActions
 from .expression import PetPainter
 
 class PetWindow(QWidget):
+    # 缩放限制
+    MIN_SIZE = 80
+    MAX_SIZE = 300
+    SCALE_STEP = 10
+    
     def __init__(self):
         super().__init__()
         
         self.initUI()
         self.offset = QPoint()
+        
+        # 当前尺寸
+        self.pet_size = 150
         
         # 简单状态
         self.is_blinking = False
@@ -86,6 +94,32 @@ class PetWindow(QWidget):
     def mouseMoveEvent(self, event):
         if event.buttons() & Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self.offset)
+
+    def wheelEvent(self, event):
+        """鼠标滚轮缩放桌宠"""
+        # 获取滚轮滚动方向
+        delta = event.angleDelta().y()
+        
+        if delta > 0:
+            # 向上滚动，放大
+            new_size = min(self.pet_size + self.SCALE_STEP, self.MAX_SIZE)
+        else:
+            # 向下滚动，缩小
+            new_size = max(self.pet_size - self.SCALE_STEP, self.MIN_SIZE)
+        
+        if new_size != self.pet_size:
+            # 计算中心点，保持缩放时中心不变
+            old_center = self.geometry().center()
+            
+            self.pet_size = new_size
+            self.setFixedSize(new_size, new_size)
+            
+            # 重新定位，使中心点保持不变
+            new_x = old_center.x() - new_size // 2
+            new_y = old_center.y() - new_size // 2
+            self.move(new_x, new_y)
+            
+            self.update()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

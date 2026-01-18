@@ -38,6 +38,15 @@ class PetActions:
         action_organize.triggered.connect(self.do_organize)
         menu.addAction(action_organize)
         
+        # 撤销整理
+        action_undo = QAction('撤销整理', self.parent)
+        action_undo.triggered.connect(self.do_undo_organize)
+        # 如果没有可撤销的操作，禁用菜单项
+        action_undo.setEnabled(organizer.can_undo())
+        menu.addAction(action_undo)
+        
+        menu.addSeparator()
+        
         action_quit = QAction('退出', self.parent)
         action_quit.triggered.connect(QApplication.instance().quit)
         menu.addAction(action_quit)
@@ -49,6 +58,12 @@ class PetActions:
         result = organizer.organize_desktop()
         print(result)
         self.dialogue.show_message("桌面整理", result)
+
+    def do_undo_organize(self):
+        print("正在撤销整理...")
+        result = organizer.undo_organize()
+        print(result)
+        self.dialogue.show_message("撤销整理", result)
 
     def do_screenshot(self):
         # 1. 询问用户保存位置
