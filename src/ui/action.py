@@ -8,6 +8,7 @@ import os
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from src.function import organizer, screen_shot, open_app
+from src.input import choice_dialog
 
 class PetActions:
     def __init__(self, parent_widget, dialogue_system):
@@ -16,27 +17,26 @@ class PetActions:
 
     def show_context_menu(self, global_pos):
         menu = QMenu(self.parent)
-        
-        # 整理桌面
-        action_organize = QAction('整理桌面', self.parent)
-        action_organize.triggered.connect(self.do_organize)
-        menu.addAction(action_organize)
-
-        # 截图/识别屏幕
-        action_screenshot = QAction('识别屏幕 (截图)', self.parent)
-        action_screenshot.triggered.connect(self.do_screenshot)
-        menu.addAction(action_screenshot)
 
         # 打开常用软件子菜单
         app_menu = menu.addMenu("打开软件")
         
-        apps = ["计算器", "记事本", "终端"]
+        apps = ["计算器", "记事本", "终端", "网易云"]
         for app in apps:
             action = QAction(app, self.parent)
             action.triggered.connect(lambda checked, a=app: self.do_open_app(a))
             app_menu.addAction(action)
 
         menu.addSeparator()
+        # 截图/识别屏幕
+        action_screenshot = QAction('识别屏幕 (截图)', self.parent)
+        action_screenshot.triggered.connect(self.do_screenshot)
+        menu.addAction(action_screenshot)
+
+        # 整理桌面
+        action_organize = QAction('整理桌面', self.parent)
+        action_organize.triggered.connect(self.do_organize)
+        menu.addAction(action_organize)
         
         action_quit = QAction('退出', self.parent)
         action_quit.triggered.connect(QApplication.instance().quit)
@@ -51,8 +51,25 @@ class PetActions:
         self.dialogue.show_message("桌面整理", result)
 
     def do_screenshot(self):
-        print("正在识别屏幕...")
-        result = screen_shot.capture_screen_content()
+        # 1. 询问用户保存位置
+        choice = choice_dialog.ask_save_location(self.parent)
+        
+        save_path = None
+        if choice == "desktop":
+            save_path = os.path.join(os.path.expanduser("~"), "Desktop")
+        elif choice == "default":
+            # C:\Users\{user}\Pictures\Screenshots
+            save_path = os.path.join(os.path.expanduser("~"), "Pictures", "Screenshots")
+        elif choice == "none":
+            self.dialogue.show_message("屏幕截图", "已取消截图保存")
+            return
+
+        print(f"正在识别屏幕... 保存到: {choice}")
+        
+        # 2. 执行截图
+        # 为防止弹出框还在屏幕上，先隐藏自己或者延迟一下？
+        # 一般 msg_box.exec() 也是阻塞的，结束后窗口就已经关闭了，所以直接截图应该没问题。
+        result = screen_shot.capture_screen_content(save_dir=save_path)
         print(result)
         self.dialogue.show_message("屏幕截图", result)
 

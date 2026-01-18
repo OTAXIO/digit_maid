@@ -30,11 +30,20 @@ class PetWindow(QWidget):
         self.blink_timer.start(3000) # 每3秒眨一次眼
 
     def initUI(self):
-        # 设置无边框和置顶
+        # ... (保持不变)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
-        self.setGeometry(100, 100, 150, 150)
+        # 获取屏幕尺寸
+        screen = QApplication.primaryScreen().availableGeometry()
+        pet_width = 150
+        pet_height = 150
+        
+        # 计算右下角位置 (减去一点边距)
+        x = screen.width() - pet_width - 100 
+        y = screen.height() - pet_height - 100
+        
+        self.setGeometry(x, y, pet_width, pet_height)
         self.setWindowTitle('DigitMaid')
 
     def paintEvent(self, event):

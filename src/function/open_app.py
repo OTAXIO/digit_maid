@@ -26,6 +26,24 @@ def open_application(app_name):
             elif "explorer" in app_name or "资源管理器" in app_name:
                 subprocess.Popen("explorer.exe")
                 return "已打开资源管理器"
+            elif "网易云" in app_name or "music" in app_name:
+                try:
+                    # 尝试直接通过注册的名称启动
+                    subprocess.Popen("cloudmusic.exe") 
+                    return "已打开网易云音乐"
+                except FileNotFoundError:
+                    # 尝试常见安装路径
+                    common_paths = [
+                        r"C:\Program Files (x86)\Netease\CloudMusic\cloudmusic.exe",
+                        r"C:\Program Files\Netease\CloudMusic\cloudmusic.exe",
+                        r"D:\Program Files (x86)\Netease\CloudMusic\cloudmusic.exe",
+                        r"C:\Netease\CloudMusic\cloudmusic.exe"
+                    ]
+                    for path in common_paths:
+                        if os.path.exists(path):
+                            subprocess.Popen(path)
+                            return "已打开网易云音乐"
+                    return "未找到网易云音乐，请确认安装位置"
             else:
                 # 尝试直接运行命令
                 try:
