@@ -3,7 +3,7 @@ import os
 from PyQt6.QtWidgets import QApplication
 
 # 调整 Python 路径以确保可以从 src 导入模块
-# 假设 code.py 位于 d:\dmaid\src\core
+# 假设 run.py 位于 d:\dmaid\src\core
 # 我们需要将 d:\dmaid 添加到 sys.path
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, "../../"))

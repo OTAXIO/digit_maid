@@ -53,7 +53,7 @@ pip install PyQt6 Pillow pyautogui
 
 运行程序：
 ```bash
-python src/core/code.py
+python src/core/run.py
 ```
 
 ### 2. 功能说明
@@ -62,3 +62,12 @@ python src/core/code.py
 *   **桌面整理**: 扫描桌面文件，按 Images, Videos, Documents 等分类移动到相应文件夹。
 *   **屏幕截图**: 截取当前屏幕并保存到 `resource/` 文件夹。
 *   **打开软件**: 快速启动计算器、记事本等。
+
+## 项目结构 (Project Structure)
+
+*   `src/core/run.py`: 程序主要入口 (Main Entry Point)。
+*   `src/ui/pet_window.py`: UI 实现、事件交互 (UI Implementation)。
+*   `src/function/organizer.py`: 桌面整理逻辑 (Desktop Organizer)。
+*   `src/function/open_app.py`: 打开常用软件逻辑 (App Launcher)。
+*   `src/function/screen_shot.py`: 屏幕截图逻辑 (Screenshot Tool)。
+*   `resource/`: 资源存放目录 (Resources)。

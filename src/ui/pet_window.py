@@ -8,7 +8,7 @@ import os
 # 为了方便导入，可以在这里临时添加一下路径，或者在 main 中处理
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from src.features import organizer, automation
+from src.function import organizer, screen_shot, open_app
 
 class PetWindow(QWidget):
     def __init__(self):
@@ -149,12 +149,12 @@ class PetWindow(QWidget):
 
     def do_screenshot(self):
         print("正在识别屏幕...")
-        result = automation.capture_screen_content()
+        result = screen_shot.capture_screen_content()
         print(result)
 
     def do_open_app(self, app_name):
         print(f"正在打开 {app_name}...")
-        result = automation.open_application(app_name)
+        result = open_app.open_application(app_name)
         print(result)
 
 if __name__ == '__main__':
