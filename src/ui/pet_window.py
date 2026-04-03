@@ -76,7 +76,7 @@ class PetWindow(QWidget):
                 lines = [line.rstrip("\n") for line in f]
 
             cfg = {
-                "base_dir": "resource/wisdel/可用素材",
+                "base_dir": "resource/wisdel/皮肤素材/可用素材",
                 "actions": {},
                 "loops": {},
                 # 向后兼容旧结构 animations: {action: {file, loop}}
@@ -137,7 +137,7 @@ class PetWindow(QWidget):
             self.inactivity_timer.stop()
             self.inactivity_stage = 0
 
-        base_dir_rel = self.anim_cfg.get("base_dir", "resource/wisdel/可用素材")
+        base_dir_rel = self.anim_cfg.get("base_dir", "resource/wisdel/皮肤素材/可用素材")
         actions = self.anim_cfg.get("actions", {})
         loops = self.anim_cfg.get("loops", {})
 
