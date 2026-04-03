@@ -10,6 +10,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from src.function import screen_shot, open_app
 from src.input import choice_dialog
+from src.input.choice_dialog import load_dialog_theme
 
 class PetActions:
     def __init__(self, parent_widget, dialogue_system):
@@ -18,6 +19,46 @@ class PetActions:
 
     def show_context_menu(self, global_pos):
         menu = QMenu(self.parent)
+
+        # 尝试应用 dialog_style.yaml 中的背景
+        theme = load_dialog_theme()
+        bg_path = theme.get("background", "")
+        if bg_path:
+            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+            if not os.path.isabs(bg_path):
+                bg_path = os.path.join(root_dir, bg_path)
+            
+            if os.path.exists(bg_path):
+                bg_url = bg_path.replace("\\", "/")
+                # 为 QMenu 及其子菜单设置统一样式
+                menu_qss = f"""
+                    QMenu {{
+                        background-image: url("{bg_url}");
+                        background-repeat: no-repeat;
+                        background-position: left top;
+                        background-color: rgba(250, 250, 250, 220); 
+                        border: 2px solid #ff3b30;
+                        border-radius: 10px;
+                        padding: 5px;
+                    }}
+                    QMenu::item {{
+                        padding: 5px 20px 5px 20px;
+                        color: #333;
+                        font-weight: bold;
+                        border-radius: 5px;
+                    }}
+                    QMenu::item:selected {{
+                        background-color: #ff3b30;
+                        color: white;
+                    }}
+                    QMenu::separator {{
+                        height: 2px;
+                        background: #ff3b30;
+                        margin: 5px 10px 5px 10px;
+                    }}
+                """
+                # 设置当前菜单和子菜单的样式
+                menu.setStyleSheet(menu_qss)
 
         # 打开常用软件子菜单
         app_menu = menu.addMenu("打开软件")

@@ -1,0 +1,20 @@
+# 对话框样式配置 (支持透明 PNG 图片)
+# 使用相对于项目根目录的路径（比如：resource/wisdel/bg.png）或绝对路径
+# 如果路径对应的文件不存在，或者留空，就会自动回退到默认的粉色方框和按钮样式
+
+background: "resource\button\background.jpg"
+
+# "桌面"按钮
+btn_desktop_normal: ""
+btn_desktop_hover: ""
+btn_desktop_pressed: ""
+
+# "默认"按钮
+btn_default_normal: ""
+btn_default_hover: ""
+btn_default_pressed: ""
+
+# "不保存"按钮
+btn_cancel_normal: ""
+btn_cancel_hover: ""
+btn_cancel_pressed: ""
