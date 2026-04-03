@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import QMenu, QApplication
 from PyQt6.QtGui import QAction
+from PyQt6.QtCore import QTimer
 import sys
 import os
 import time
@@ -9,8 +10,10 @@ import time
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from src.function import screen_shot, open_app
+from src.function.open_app import load_app_paths
 from src.input import choice_dialog
 from src.input.choice_dialog import load_dialog_theme
+from src.input.circular_menu import CircularMenuWidget
 
 class PetActions:
     def __init__(self, parent_widget, dialogue_system):
@@ -18,6 +21,20 @@ class PetActions:
         self.dialogue = dialogue_system
 
     def show_context_menu(self, global_pos):
+        # 拦截：如果气泡菜单已经存在并且开着，重复右击则关闭它（相当于开关切换）
+        if hasattr(self, "circular_menu") and self.circular_menu is not None:
+            if getattr(self.circular_menu, "isVisible", lambda: False)():
+                self.circular_menu.close_menu()
+                # 已经做了关闭动作，就可以返回了
+                return
+        
+        theme = load_dialog_theme()
+        menu_style = theme.get("menu_style", "list")
+
+        if menu_style == "circular":
+            self.show_circular_menu(global_pos)
+            return
+
         menu = QMenu(self.parent)
 
         # 尝试应用 dialog_style.yaml 中的背景
@@ -61,9 +78,9 @@ class PetActions:
                 menu.setStyleSheet(menu_qss)
 
         # 打开常用软件子菜单
-        app_menu = menu.addMenu("打开软件")
+        app_menu = menu.addMenu("APP")
         
-        apps = ["鹰角启动！","计算器", "记事本", "终端", "网易云"]
+        apps = list(load_app_paths().keys())
         for app in apps:
             action = QAction(app, self.parent)
             action.triggered.connect(lambda checked, a=app: self.do_open_app(a))
@@ -71,7 +88,7 @@ class PetActions:
 
         menu.addSeparator()
         # 截图/识别屏幕
-        action_screenshot = QAction('识别屏幕 (截图)', self.parent)
+        action_screenshot = QAction('截图', self.parent)
         action_screenshot.triggered.connect(self.do_screenshot)
         menu.addAction(action_screenshot)
         
@@ -80,6 +97,92 @@ class PetActions:
         menu.addAction(action_quit)
 
         menu.exec(global_pos)
+        
+        # 阻塞调用结束，手动恢复桌宠的状态
+        self.parent.menu_interact_mode = False
+        self.parent.play_action("idle")
+        if hasattr(self.parent, "force_on_top"):
+            self.parent.force_on_top()
+
+    def show_circular_menu(self, global_pos):
+        """用半圆形菜单展开相同的选项"""
+        apps = list(load_app_paths().keys())
+        
+        # 构造“打开软件”子菜单的数据
+        app_sub_items = [
+            {'label': app, 'action': lambda a=app: self.do_open_app(a)} 
+            for app in apps
+        ]
+
+        screenshot_sub_items = [
+            {'label': '存到桌面', 'action': lambda: self.do_circular_screenshot("desktop")},
+            {'label': '存到默认', 'action': lambda: self.do_circular_screenshot("default")},
+            {'label': '不保存', 'action': lambda: self.do_circular_screenshot("none")}
+        ]
+
+        # 构造顶层选项
+        top_items = [
+            {'label': 'APP', 'action': app_sub_items},
+            {'label': '截图', 'action': screenshot_sub_items},
+            {'label': '退出', 'action': QApplication.instance().quit}
+        ]
+        
+        # 把中心点设在桌宠的正上方一点或正中心
+        center_x = self.parent.x() + self.parent.width() // 2
+        center_y = self.parent.y() + self.parent.height() // 2
+        center_point = self.parent.mapToGlobal(self.parent.rect().center())
+        
+        # 实例化并显示全屏的透明菜单窗体
+        self.circular_menu = CircularMenuWidget(
+            items=top_items,
+            center_pos=center_point,
+            on_close_callback=lambda: self.on_circular_menu_closed(),
+            parent=self.parent
+        )
+        self.circular_menu.show()
+        
+    def on_circular_menu_closed(self):
+        # 菜单关闭后恢复桌宠状态
+        self.parent.menu_interact_mode = False
+        self.parent.play_action("idle")
+        if hasattr(self.parent, "force_on_top"):
+            self.parent.force_on_top()
+
+    def do_circular_screenshot(self, choice):
+        self.parent.play_action("screenshot")
+        
+        save_path = None
+        if choice == "desktop":
+            save_path = os.path.join(os.path.expanduser("~"), "Desktop")
+        elif choice == "default":
+            # C:\Users\{user}\Pictures\Screenshots
+            save_path = os.path.join(os.path.expanduser("~"), "Pictures", "Screenshots")
+        elif choice == "none":
+            self.dialogue.show_message("屏幕截图", "已取消截图保存")
+            return
+
+        print(f"正在识别屏幕... 保存到: {choice}")
+        
+        # 为了防止截图带上桌宠自己，先将桌宠隐藏
+        self.parent.hide()
+        
+        def capture_and_restore():
+            # 执行截图
+            result = screen_shot.capture_screen_content(save_dir=save_path)
+            
+            # 截完图重新显示回来并置顶
+            if hasattr(self.parent, "force_on_top"):
+                self.parent.force_on_top()
+            else:
+                self.parent.show()
+                self.parent.raise_()
+                self.parent.activateWindow()
+                
+            print(result)
+            self.dialogue.show_message("屏幕截图", result)
+            
+        # 使用 QTimer.singleShot 代替 time.sleep(0.2) 阻塞主线程，让系统彻底从屏幕上清理掉窗体残留视觉，并避免 Windows 把程序降级为假死
+        QTimer.singleShot(300, capture_and_restore)
 
     def do_screenshot(self):
         self.parent.play_action("screenshot")
@@ -100,23 +203,24 @@ class PetActions:
         
         # 2. 为了防止截图带上桌宠自己，先将桌宠隐藏并刷新页面缓冲
         self.parent.hide()
-        QApplication.processEvents()
         
-        # 可选等待一小下，确保窗口完全从屏幕清除了视觉残留
-        time.sleep(0.2)
-        
-        # 执行截图
-        result = screen_shot.capture_screen_content(save_dir=save_path)
-        
-        # 截完图重新显示回来并置顶
-        if hasattr(self.parent, "force_on_top"):
-            self.parent.force_on_top()
-        else:
-            self.parent.show()
-            self.parent.raise_()
-        
-        print(result)
-        self.dialogue.show_message("屏幕截图", result)
+        def capture_and_restore():
+            # 执行截图
+            result = screen_shot.capture_screen_content(save_dir=save_path)
+            
+            # 截完图重新显示回来并置顶
+            if hasattr(self.parent, "force_on_top"):
+                self.parent.force_on_top()
+            else:
+                self.parent.show()
+                self.parent.raise_()
+                self.parent.activateWindow()
+            
+            print(result)
+            self.dialogue.show_message("屏幕截图", result)
+            
+        # 使用 QTimer.singleShot 代替 time.sleep(0.2)
+        QTimer.singleShot(300, capture_and_restore)
 
     def do_open_app(self, app_name):
         self.parent.play_action("open_app")

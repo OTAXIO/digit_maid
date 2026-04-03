@@ -50,7 +50,11 @@ def open_application(app_name):
                         # 对于不需要完整路径的系统命令（如 calc.exe等），直接尝试启动
                         if os.path.exists(path) or "\\" not in path:
                             try:
-                                subprocess.Popen(path)
+                                # Start detached process independently of python terminal lifecycle to prevent crashes
+                                if platform.system() == "Windows":
+                                    subprocess.Popen(path, creationflags=subprocess.DETACHED_PROCESS, shell=False)
+                                else:
+                                    subprocess.Popen(path, shell=False)
                                 return f"已打开{keyword}"
                             except FileNotFoundError:
                                 continue
@@ -58,7 +62,10 @@ def open_application(app_name):
             
             # 如果配置文件中没找到，尝试直接运行命令
             try:
-                subprocess.Popen(app_name)
+                if platform.system() == "Windows":
+                    subprocess.Popen(app_name, creationflags=subprocess.DETACHED_PROCESS, shell=False)
+                else:
+                    subprocess.Popen(app_name)
                 return f"尝试启动 {app_name}"
             except FileNotFoundError:
                 return f"找不到应用: {app_name}"

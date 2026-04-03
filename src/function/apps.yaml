@@ -1,32 +1,16 @@
 # 应用程序路径配置
 app_paths:
-  鹰角启动！:
-    - E:\GAME\Hypergryph Launcher\Launcher.exe
-  calc:
-    - calc.exe
   计算器:
     - calc.exe
-  notepad:
-    - notepad.exe
   记事本:
     - notepad.exe
-  cmd:
-    - C:\WINDOWS\system32\cmd.exe
   终端:
     - C:\WINDOWS\system32\cmd.exe
-  explorer:
-    - explorer.exe
-  资源管理器:
-    - explorer.exe
   网易云:
     - cloudmusic.exe
     - C:\Program Files (x86)\Netease\CloudMusic\cloudmusic.exe
     - C:\Program Files\Netease\CloudMusic\cloudmusic.exe
     - D:\Program Files (x86)\Netease\CloudMusic\cloudmusic.exe
     - C:\Netease\CloudMusic\cloudmusic.exe
-  music:
-    - cloudmusic.exe
-    - C:\Program Files (x86)\Netease\CloudMusic\cloudmusic.exe
-    - C:\Program Files\Netease\CloudMusic\cloudmusic.exe
-    - D:\Program Files (x86)\Netease\CloudMusic\cloudmusic.exe
-    - C:\Netease\CloudMusic\cloudmusic.exe
+  鹰角启动:
+    - E:\GAME\Hypergryph Launcher\Launcher.exe

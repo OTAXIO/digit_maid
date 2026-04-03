@@ -2,6 +2,9 @@
 # 使用相对于项目根目录的路径（比如：resource/wisdel/bg.png）或绝对路径
 # 如果路径对应的文件不存在，或者留空，就会自动回退到默认的粉色方框和按钮样式
 
+# menu_style: "list" 或 "circular"
+menu_style: "circular"
+
 background: "resource\button\background.jpg"
 
 # "桌面"按钮

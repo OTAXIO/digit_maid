@@ -19,7 +19,7 @@ class SpeechBubble(QWidget):
         # 支持 HTML 格式 (比如标题加粗)
         self.label.setTextFormat(Qt.TextFormat.RichText) 
         self.label.setFont(QFont("Microsoft YaHei", 10))
-        self.label.setStyleSheet("color: black;")
+        self.label.setStyleSheet("color: white;")
         layout.addWidget(self.label)
         self.setLayout(layout)
         
@@ -62,7 +62,7 @@ class SpeechBubble(QWidget):
         rect = QRectF(0, 0, width, height - arrow_height)
         
         path = QPainterPath()
-        path.addRoundedRect(rect, 15, 15) # 圆角矩形
+        path.addRoundedRect(rect, 25, 25) # 增加圆角半径使其更加圆润
         
         # 绘制小尾巴 (指向左下角)
         # 箭头起点 (在矩形底部边框上)
@@ -77,10 +77,10 @@ class SpeechBubble(QWidget):
         
         # 合并路径会自动处理重叠部分
         
-        # 填充白色
-        painter.setBrush(QBrush(QColor(255, 255, 255)))
-        # 描边 (深灰色)
-        painter.setPen(QPen(QColor(60, 60, 60), 2))
+        # 使用和圆形菜单一致的深红色背景
+        painter.setBrush(QBrush(QColor("#c41c1c")))
+        # 使用黑色描边
+        painter.setPen(QPen(QColor(0, 0, 0), 3))
         
         painter.drawPath(path)
 

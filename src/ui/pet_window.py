@@ -319,6 +319,11 @@ class PetWindow(QWidget):
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            # 当左键点击(准备拖拽或点击)时，如果有气泡菜单则关闭
+            if hasattr(self.pet_actions, "circular_menu") and self.pet_actions.circular_menu is not None:
+                if getattr(self.pet_actions.circular_menu, "isVisible", lambda: False)():
+                    self.pet_actions.circular_menu.close_menu()
+
             self.offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self._is_dragging = False
             
@@ -341,12 +346,6 @@ class PetWindow(QWidget):
             
             # 委托 action 模块处理右键菜单
             self.pet_actions.show_context_menu(event.globalPosition().toPoint())
-            # 菜单关闭后恢复 idle
-            self.menu_interact_mode = False
-            self.play_action("idle")
-            
-            # 手动置顶，防止因为其他程序的出现掉出最上层
-            self.force_on_top()
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -411,9 +410,10 @@ class PetWindow(QWidget):
 
     def force_on_top(self):
         """强制将窗口保持在屏幕最顶层"""
-        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+        # 使用 Qt 的方式进行窗口置顶，避免在 Windows 下重复 setWindowFlags 产生僵尸窗口句柄
         self.show()
         self.raise_()
+        self.activateWindow()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
