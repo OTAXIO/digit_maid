@@ -8,6 +8,7 @@ base_dir: resource/wisdel/可用素材
 actions:
   idle: relax.gif
   interact: interact.gif
+  special: special.gif
   move: move.gif
   sit: sit.gif
   sleep: sleep.gif
@@ -17,6 +18,7 @@ actions:
 loops:
   idle: true
   interact: false
+  special: false
   move: true
   sit: true
   sleep: true
