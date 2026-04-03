@@ -313,6 +313,10 @@ class PetWindow(QWidget):
                 # 仅在拖拽结束时回到 idle
                 if self.current_action == "move":
                     self.play_action("idle")
+            else:
+                # 真正的单击操作：松开鼠标且没有拖拽，打断一切动作回到 idle
+                if self.current_action != "idle":
+                    self.play_action("idle")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
