@@ -3,8 +3,8 @@ import time
 import random
 
 from PyQt6.QtWidgets import QWidget, QApplication, QLabel, QVBoxLayout
-from PyQt6.QtCore import Qt, QPoint, QTimer
-from PyQt6.QtGui import QMovie
+from PyQt6.QtCore import Qt, QPoint, QTimer, QSize
+from PyQt6.QtGui import QMovie, QTransform
 import sys
 
 # 导入分离后的UI模块
@@ -31,7 +31,7 @@ class PetWindow(QWidget):
         self.pet_label = QLabel(self)
         self.pet_label.setStyleSheet("background: transparent;")
         self.pet_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.pet_label.setScaledContents(False)
+        self.pet_label.setScaledContents(True)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.pet_label)
@@ -59,8 +59,8 @@ class PetWindow(QWidget):
         
         # 获取屏幕尺寸
         screen = QApplication.primaryScreen().availableGeometry()
-        pet_width = 170
-        pet_height = 170
+        pet_width = 85
+        pet_height = 85
         
         # 计算左下角位置 (加上一点边距)
         x = screen.left() + 100 
@@ -131,7 +131,7 @@ class PetWindow(QWidget):
             print(f"读取动作配置失败: {e}")
             return {}
 
-    def play_action(self, action_name, force_loop=None):
+    def play_action(self, action_name, force_loop=None, is_flipped=False):
         # 只要切换动作，就先暂停待机计时；如果是回到 idle，再重新开始计时
         if hasattr(self, 'inactivity_timer'):
             self.inactivity_timer.stop()
@@ -171,25 +171,30 @@ class PetWindow(QWidget):
         movie = QMovie(gif_path)
         movie.jumpToFrame(0)
 
-        # 保留 GIF 原始像素，并调整窗口以完整显示
+        # 获取 GIF 原始像素，缩放一倍显示
         frame_size = movie.currentImage().size()
         if not frame_size.isEmpty():
             current_pos = self.pos()
             screen_geo = self.screen().availableGeometry()
             
+            target_width = frame_size.width() // 2
+            target_height = frame_size.height() // 2
+            
             # 尝试保持当前左上角，但如果右下角超出屏幕则向左/向上挤
             new_x = current_pos.x()
             new_y = current_pos.y()
-            if new_x + frame_size.width() > screen_geo.right():
-                new_x = screen_geo.right() - frame_size.width()
-            if new_y + frame_size.height() > screen_geo.bottom():
-                new_y = screen_geo.bottom() - frame_size.height()
+            if new_x + target_width > screen_geo.right():
+                new_x = screen_geo.right() - target_width
+            if new_y + target_height > screen_geo.bottom():
+                new_y = screen_geo.bottom() - target_height
                 
             # 兜底保证左上角不越界
             new_x = max(screen_geo.left(), new_x)
             new_y = max(screen_geo.top(), new_y)
             
-            self.setGeometry(new_x, new_y, frame_size.width(), frame_size.height())
+            movie.setScaledSize(QSize(target_width, target_height))
+            self.pet_label.setFixedSize(target_width, target_height)
+            self.setGeometry(new_x, new_y, target_width, target_height)
         if force_loop is None:
             self.current_loop = loop_value
         else:
@@ -200,8 +205,19 @@ class PetWindow(QWidget):
         
         self.current_action = action_name
         self.current_movie = movie
-        self.pet_label.setMovie(movie)
+        self.is_flipped = is_flipped
+        
+        if not self.is_flipped:
+            self.pet_label.setMovie(movie)
+            
         movie.start()
+        
+        if self.is_flipped:
+            # 手动提取第一帧进行翻转并上屏
+            pixmap = movie.currentPixmap()
+            if not pixmap.isNull():
+                transform = QTransform().scale(-1, 1)
+                self.pet_label.setPixmap(pixmap.transformed(transform))
         
         # 只有在 idle 状态下才允许计时器流动
         if action_name == "idle" and hasattr(self, 'inactivity_timer'):
@@ -211,6 +227,13 @@ class PetWindow(QWidget):
         if self.current_movie is None:
             return
             
+        # 如果需要左右翻转，每帧渲染时手动更新 QLabel
+        if getattr(self, "is_flipped", False):
+            pixmap = self.current_movie.currentPixmap()
+            if not pixmap.isNull():
+                transform = QTransform().scale(-1, 1)
+                self.pet_label.setPixmap(pixmap.transformed(transform))
+                
         # 检查是否到达最后一帧
         if frame_number >= self.current_movie.frameCount() - 1:
             if not self.current_loop:
@@ -289,8 +312,6 @@ class PetWindow(QWidget):
             # 只有双击0.5秒后的拖动才被认为是真实的拖拽互动，立刻打断动作变为move
             if time.time() - getattr(self, '_last_double_click_time', 0) > 0.5:
                 self._is_dragging = True
-                if self.current_action != "move":
-                    self.play_action("move")
                 
                 # 计算拖拽位置
                 new_pos = event.globalPosition().toPoint() - self.offset
@@ -299,6 +320,18 @@ class PetWindow(QWidget):
                 # 限制在屏幕范围内
                 new_x = max(screen_geo.left(), min(new_pos.x(), screen_geo.right() - self.width()))
                 new_y = max(screen_geo.top(), min(new_pos.y(), screen_geo.bottom() - self.height()))
+                
+                # 判断水平移动方向，如果向左移动则翻转
+                is_moving_left = new_x < self.pos().x()
+                is_moving_right = new_x > self.pos().x()
+                
+                if self.current_action != "move":
+                    self.play_action("move", is_flipped=is_moving_left)
+                else:
+                    if is_moving_left and not getattr(self, "is_flipped", False):
+                        self.play_action("move", is_flipped=True)
+                    elif is_moving_right and getattr(self, "is_flipped", False):
+                        self.play_action("move", is_flipped=False)
                 
                 self.move(new_x, new_y)
 
