@@ -1,0 +1,24 @@
+# 桌宠动作配置（可直接改）
+# 1) actions: 每个 action 对应的 gif 文件名
+# 2) loops:   每个 action 是否循环播放（true/false）
+# 3) base_dir: gif 所在目录（相对项目根目录）
+
+base_dir: resource/wisdel/可用素材
+
+actions:
+  idle: relax.gif
+  interact: interact.gif
+  move: move.gif
+  sit: sit.gif
+  sleep: sleep.gif
+  screenshot: sit.gif
+  open_app: special.gif
+
+loops:
+  idle: true
+  interact: false
+  move: true
+  sit: true
+  sleep: true
+  screenshot: false
+  open_app: false

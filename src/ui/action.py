@@ -7,7 +7,7 @@ import os
 # 为了方便导入，可以在这里临时添加一下路径，或者在 main 中处理
 import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from src.function import organizer, screen_shot, open_app
+from src.function import screen_shot, open_app
 from src.input import choice_dialog
 
 class PetActions:
@@ -32,11 +32,6 @@ class PetActions:
         action_screenshot = QAction('识别屏幕 (截图)', self.parent)
         action_screenshot.triggered.connect(self.do_screenshot)
         menu.addAction(action_screenshot)
-
-        # 整理桌面
-        action_organize = QAction('整理桌面', self.parent)
-        action_organize.triggered.connect(self.do_organize)
-        menu.addAction(action_organize)
         
         action_quit = QAction('退出', self.parent)
         action_quit.triggered.connect(QApplication.instance().quit)
@@ -44,13 +39,8 @@ class PetActions:
 
         menu.exec(global_pos)
 
-    def do_organize(self):
-        print("正在整理桌面...")
-        result = organizer.organize_desktop()
-        print(result)
-        self.dialogue.show_message("桌面整理", result)
-
     def do_screenshot(self):
+        self.parent.play_action("screenshot")
         # 1. 询问用户保存位置
         choice = choice_dialog.ask_save_location(self.parent)
         
@@ -74,6 +64,7 @@ class PetActions:
         self.dialogue.show_message("屏幕截图", result)
 
     def do_open_app(self, app_name):
+        self.parent.play_action("open_app")
         print(f"正在打开 {app_name}...")
         result = open_app.open_application(app_name)
         print(result)
