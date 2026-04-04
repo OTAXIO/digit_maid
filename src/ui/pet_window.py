@@ -48,6 +48,7 @@ class PetWindow(QWidget):
         self.inactivity_timer = QTimer(self)
         self.inactivity_timer.setSingleShot(True)
         self.inactivity_timer.timeout.connect(self._on_inactivity_timeout)
+        self._inactivity_deadline = None
 
         # 闲置散步计时器
         self.wander_timer = QTimer(self)
@@ -150,9 +151,7 @@ class PetWindow(QWidget):
 
     def play_action(self, action_name, force_loop=None, is_flipped=None):
         # 只要切换动作，就先暂停待机计时；如果是回到 idle，再重新开始计时
-        if hasattr(self, 'inactivity_timer'):
-            self.inactivity_timer.stop()
-            self.inactivity_stage = 0
+        self._stop_inactivity_timer(reset_stage=True)
 
         base_dir_rel = self.anim_cfg.get("base_dir", "resource/wisdel/皮肤素材/可用素材")
         actions = self.anim_cfg.get("actions", {})
@@ -326,9 +325,29 @@ class PetWindow(QWidget):
 
     def _reset_inactivity_timer(self):
         self.inactivity_stage = 0
-        self.inactivity_timer.start(15000)#15秒以后进入水平move
+        self._start_inactivity_timer(15000) # 15秒以后进入水平move
+
+    def _start_inactivity_timer(self, duration_ms):
+        self._inactivity_deadline = time.monotonic() + (duration_ms / 1000.0)
+        self.inactivity_timer.start(duration_ms)
+
+    def _stop_inactivity_timer(self, reset_stage=False):
+        self.inactivity_timer.stop()
+        self._inactivity_deadline = None
+        if reset_stage:
+            self.inactivity_stage = 0
 
     def _on_inactivity_timeout(self):
+        # 防止计时器在临界点被 stop/restart 后仍触发陈旧 timeout，误打断当前动作
+        deadline = self._inactivity_deadline
+        if deadline is None:
+            return
+
+        if time.monotonic() + 0.05 < deadline:
+            return
+
+        self._inactivity_deadline = None
+
         if self.inactivity_stage == 0:
             # 15s无互动：播放 move 动作
             # 随机决定初次散步方向：-1为向左走，1为向右走
@@ -339,7 +358,7 @@ class PetWindow(QWidget):
             # 向左走(direction < 0)时进行翻转
             self.play_action("move", is_flipped=(direction < 0))
             self.inactivity_stage = 1
-            self.inactivity_timer.start(15000)#再15秒以后进入坐姿
+            self._start_inactivity_timer(15000) # 再15秒以后进入坐姿
             self.wander_timer.start(50)       # 开启散步定时器 (50ms)
         elif self.inactivity_stage == 1:
             # 停止散步
@@ -348,13 +367,13 @@ class PetWindow(QWidget):
             self.move(self.x(), self.y() + 30)
             self.play_action("sit")
             self.inactivity_stage = 2
-            self.inactivity_timer.start(15000)#再15秒以后进入躺姿
+            self._start_inactivity_timer(15000) # 再15秒以后进入躺姿
         elif self.inactivity_stage == 2:
             # 播放 sleep
             self.move(self.x() - 10, self.y() + 20)
             self.play_action("sleep")
             self.inactivity_stage = 0
-            self.inactivity_timer.start(45000)
+            self._start_inactivity_timer(45000)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -368,7 +387,7 @@ class PetWindow(QWidget):
                 
             # 按下的瞬间暂停计时防挂机
             if self.current_action == "idle":
-                self.inactivity_timer.stop()
+                self._stop_inactivity_timer()
               
         elif event.button() == Qt.MouseButton.RightButton:
             # 右击也可以关闭当前弹出的提示气泡
