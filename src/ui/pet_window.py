@@ -268,14 +268,14 @@ class PetWindow(QWidget):
         start_x = getattr(self, 'wander_start_x', self.x())
         
         # 碰到屏幕边缘或者超出50像素则转身
-        if new_x < screen_geo.left() or new_x < start_x - 75:
-            new_x = max(screen_geo.left(), start_x - 75)
+        if new_x < screen_geo.left() or new_x < start_x - 100:
+            new_x = max(screen_geo.left(), start_x - 100)
             self.wander_speed *= -1
             self.is_flipped = False
             if self.current_movie:
                 self.pet_label.setMovie(self.current_movie)
-        elif new_x + self.width() > screen_geo.right() or new_x > start_x + 75:
-            new_x = min(screen_geo.right() - self.width(), start_x + 75)
+        elif new_x + self.width() > screen_geo.right() or new_x > start_x + 100:
+            new_x = min(screen_geo.right() - self.width(), start_x + 100)
             self.wander_speed *= -1
             self.is_flipped = True
             if self.current_movie:
@@ -337,6 +337,9 @@ class PetWindow(QWidget):
                 self.inactivity_timer.stop()
               
         elif event.button() == Qt.MouseButton.RightButton:
+            # 右击也可以关闭当前弹出的提示气泡
+            self.dialogue_system.hide_dialogue()
+            
             # 在 special 或者准备阶段忽略呼出菜单
             if self.current_action == "special" or getattr(self, '_is_preparing_special', False):
                 return
@@ -350,6 +353,9 @@ class PetWindow(QWidget):
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            # 双击交互打断对话框
+            self.dialogue_system.hide_dialogue()
+            
             # 免疫 special 期间的双击操作
             if self.current_action == "special":
                 return
@@ -363,6 +369,9 @@ class PetWindow(QWidget):
 
     def mouseMoveEvent(self, event):
         if event.buttons() & Qt.MouseButton.LeftButton:
+            # 拖拽时打断对话框
+            self.dialogue_system.hide_dialogue()
+            
             # 如果处于特殊动作准备阶段（向右平移），只要用户一拖拽立马打断
             if getattr(self, '_is_preparing_special', False):
                 self._is_preparing_special = False

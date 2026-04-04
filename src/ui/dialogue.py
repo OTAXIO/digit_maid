@@ -82,10 +82,10 @@ class SpeechBubble(QWidget):
         # 定位到目标附近
         self.update_position()
         
-        # 4秒后自动淡出或关闭
+        # 2秒后自动淡出或关闭
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.close)
-        self.timer.start(4000)
+        self.timer.start(2000)
 
     def update_position(self):
         if self.target:
@@ -165,3 +165,11 @@ class DialogueSystem:
         
         self.current_bubble = SpeechBubble(display_text, self.parent)
         self.current_bubble.show()
+
+    def hide_dialogue(self):
+        if self.current_bubble:
+            try:
+                self.current_bubble.close()
+                self.current_bubble = None
+            except:
+                pass

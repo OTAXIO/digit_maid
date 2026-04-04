@@ -75,6 +75,8 @@ class BubbleButton(QPushButton):
         self.angle = angle
 
     def enterEvent(self, event):
+        if self.parent() and hasattr(self.parent(), 'inactivity_timer'):
+            self.parent().inactivity_timer.start(15000)
         super().enterEvent(event)
         self.raise_()
         if hasattr(self, 'base_x') and hasattr(self, 'base_y') and hasattr(self, 'angle'):
@@ -163,6 +165,7 @@ class CircularMenuWidget(QWidget):
         
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setMouseTracking(True)
         
         # Cover the whole screen
         screen_geo = QApplication.primaryScreen().availableGeometry()
@@ -181,6 +184,12 @@ class CircularMenuWidget(QWidget):
         self.current_items = items
         self.current_page = 0
         self.buttons = []
+        
+        # 15秒无操作自动关闭
+        self.inactivity_timer = QTimer(self)
+        self.inactivity_timer.setSingleShot(True)
+        self.inactivity_timer.timeout.connect(self.close_menu)
+        self.inactivity_timer.start(15000)
         
         self._build_menu()
 
@@ -362,6 +371,10 @@ class CircularMenuWidget(QWidget):
     def mousePressEvent(self, event):
         # Click outside closes the menu
         self.close_menu()
+        
+    def mouseMoveEvent(self, event):
+        self.inactivity_timer.start(15000)
+        super().mouseMoveEvent(event)
         
     def close_menu(self):
         if self.on_close_callback:

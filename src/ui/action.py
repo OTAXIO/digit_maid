@@ -103,6 +103,24 @@ class PetActions:
         action_quit.triggered.connect(QApplication.instance().quit)
         menu.addAction(action_quit)
 
+        # 添加 15 秒无操作自动关闭
+        from PyQt6.QtCore import QObject, QEvent
+        
+        menu_timer = QTimer(self.parent)
+        menu_timer.setSingleShot(True)
+        menu_timer.timeout.connect(menu.close)
+        
+        class MenuEventFilter(QObject):
+            def eventFilter(self, obj, event):
+                # 记录可以视作操作或互动的事件
+                if event.type() in (QEvent.Type.MouseMove, QEvent.Type.HoverMove, QEvent.Type.KeyPress, QEvent.Type.MouseButtonPress, QEvent.Type.Wheel):
+                    menu_timer.start(20000)
+                return False
+                
+        menu_filter = MenuEventFilter(menu)
+        menu.installEventFilter(menu_filter)
+        menu_timer.start(15000)
+
         menu.exec(global_pos)
         
         # 阻塞调用结束，手动恢复桌宠的状态
