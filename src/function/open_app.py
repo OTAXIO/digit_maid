@@ -1,8 +1,8 @@
 import os
 import subprocess
-import pyautogui
 from datetime import datetime
 import platform
+from PyQt6.QtWidgets import QApplication
 
 def load_app_paths():
     """解析简单的 YAML 文件读取应用路径配置"""
@@ -93,9 +93,13 @@ def capture_screen_content():
         filename = f"screenshot_{timestamp}.png"
         filepath = os.path.join(resource_dir, filename)
         
-        screenshot = pyautogui.screenshot()
-        screenshot.save(filepath)
-        
-        return f"屏幕已截图，保存为: {filename}"
+        app = QApplication.instance()
+        if app:
+            screen = app.primaryScreen()
+            pixmap = screen.grabWindow(0)
+            pixmap.save(filepath, 'PNG')
+            return f"屏幕已截图，保存为: {filename}"
+        else:
+            return "截图失败: 找不到 QApplication 实例"
     except Exception as e:
         return f"截图失败: {e}"

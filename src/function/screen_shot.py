@@ -1,8 +1,6 @@
 import os
-import subprocess
-import pyautogui
 from datetime import datetime
-import platform
+from PyQt6.QtWidgets import QApplication
 
 def capture_screen_content(save_dir=None):
     """
@@ -28,9 +26,14 @@ def capture_screen_content(save_dir=None):
         filename = f"screenshot_{timestamp}.png"
         filepath = os.path.join(target_dir, filename)
         
-        screenshot = pyautogui.screenshot()
-        screenshot.save(filepath)
-        
-        return f"屏幕已截图，保存为: {filepath}"
+        # 使用 PyQt6 原生截图方法，避免 pyautogui 和 Pillow 的额外内存消耗与冲突
+        app = QApplication.instance()
+        if app:
+            screen = app.primaryScreen()
+            pixmap = screen.grabWindow(0)
+            pixmap.save(filepath, 'PNG')
+            return f"屏幕已截图，保存为: {filepath}"
+        else:
+            return "截图失败: 找不到 QApplication 实例"
     except Exception as e:
         return f"截图失败: {e}"
