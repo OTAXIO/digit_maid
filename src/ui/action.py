@@ -198,12 +198,23 @@ class PetActions:
         # 1. 询问用户保存位置
         choice = choice_dialog.ask_save_location(self.parent)
         
+        def get_windows_folder(folder_name, fallback):
+            if os.name != 'nt':
+                return fallback
+            try:
+                import winreg
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as key:
+                    path, _ = winreg.QueryValueEx(key, folder_name)
+                    return os.path.expandvars(path)
+            except Exception:
+                return fallback
+                
         save_path = None
         if choice == "desktop":
-            save_path = os.path.join(os.path.expanduser("~"), "Desktop")
+            save_path = get_windows_folder("Desktop", os.path.join(os.path.expanduser("~"), "Desktop"))
         elif choice == "default":
-            # C:\Users\{user}\Pictures\Screenshots
-            save_path = os.path.join(os.path.expanduser("~"), "Pictures", "Screenshots")
+            my_pics = get_windows_folder("My Pictures", os.path.join(os.path.expanduser("~"), "Pictures"))
+            save_path = os.path.join(my_pics, "Screenshots")
         elif choice == "none":
             self.dialogue.show_message("屏幕截图", "已取消截图保存")
             return

@@ -1,6 +1,94 @@
 import os
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
-from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QApplication, QGraphicsDropShadowEffect
+from PyQt6.QtCore import Qt, QPointF
+from PyQt6.QtGui import QPainter, QColor, QPen, QPainterPath
+
+class OutlineLabel(QLabel):
+    def __init__(self, text="", enable_outline=True, parent=None):
+        super().__init__(text, parent)
+        self.enable_outline = enable_outline
+
+    def paintEvent(self, event):
+        if not self.enable_outline:
+            super().paintEvent(event)
+            return
+            
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        
+        text = self.text()
+        rect = self.contentsRect()
+        font = self.font()
+        
+        path = QPainterPath()
+        fm = painter.fontMetrics()
+        text_rect = fm.boundingRect(text)
+        
+        alignment = self.alignment()
+        if alignment & Qt.AlignmentFlag.AlignCenter:
+            x = rect.x() + (rect.width() - text_rect.width()) / 2.0
+        elif alignment & Qt.AlignmentFlag.AlignRight:
+            x = rect.x() + rect.width() - text_rect.width()
+        else:
+            x = rect.x()
+            
+        y = rect.y() + (rect.height() - fm.height()) / 2.0 + fm.ascent()
+        
+        path.addText(QPointF(x, y), font, text)
+        
+        # Draw stroke
+        pen = QPen(QColor("black"))
+        pen.setWidth(3)
+        painter.setPen(pen)
+        painter.drawPath(path)
+        
+        # Draw fill
+        painter.fillPath(path, QColor("white"))
+
+class OutlineButton(QPushButton):
+    def __init__(self, text, enable_outline=True, parent=None, **kwargs):
+        super().__init__(text, parent, **kwargs)
+        self.enable_outline = enable_outline
+        
+    def paintEvent(self, event):
+        # 让父类先绘制背景 (包括 border-image 等)
+        super().paintEvent(event)
+        
+        if not self.enable_outline:
+            return
+            
+        # 自己再画一层描边文字
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        
+        text = self.text()
+        rect = self.rect()
+        
+        # 必须和 StyleSheet 中的字体设置保持一致
+        font = self.font()
+        
+        path = QPainterPath()
+        
+        # 为了计算文字居中位置，我们需要获取字体的尺寸信息
+        fm = painter.fontMetrics()
+        text_rect = fm.boundingRect(text)
+        
+        # 将起点移动到中心
+        x = (rect.width() - text_rect.width()) / 2.0
+        y = (rect.height() + fm.ascent() - fm.descent()) / 2.0
+        
+        path.addText(QPointF(x, y), font, text)
+        
+        # 绘制黑色的粗边框（描边）
+        pen = QPen(QColor("black"))
+        pen.setWidth(3)  # 设置边框粗细为3像素，非常明显
+        painter.setPen(pen)
+        painter.drawPath(path)
+        
+        # 填充白色的实体文字
+        painter.fillPath(path, QColor("white"))
+        
+        # 我们不再直接调用 drawText，全靠 PainterPath 画出描边效果
 
 def load_dialog_theme():
     """解析简单的 YAML 文件读取对话框图片路径"""
@@ -74,9 +162,13 @@ class CustomChoiceDialog(QDialog):
         layout = QVBoxLayout(self.bg_label)
         layout.setContentsMargins(20, 20, 20, 20)
 
+        # 读取黑边配置
+        self.outline_button_text = str(self.theme.get("outline_button_text", "true")).lower() == "true"
+        lbl_col = "transparent" if self.outline_button_text else text_color
+
         # 提示文字
-        self.info_label = QLabel("请选择截图要保存的位置：")
-        self.info_label.setStyleSheet(f"font-size: 14px; color: {text_color}; border: none; background: transparent;")
+        self.info_label = OutlineLabel("请选择截图要保存的位置：", enable_outline=self.outline_button_text)
+        self.info_label.setStyleSheet(f"font-size: 14px; text-align: center; color: {lbl_col}; border: none; background: transparent;")
         self.info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.info_label)
 
@@ -84,7 +176,7 @@ class CustomChoiceDialog(QDialog):
         btn_layout = QHBoxLayout()
         
         def create_button(text, key_prefix):
-            btn = QPushButton(text)
+            btn = OutlineButton(text, enable_outline=self.outline_button_text)
             # 在 yaml 中留空表示退回默认大小，如果用图可以改这里
             btn.setFixedSize(70, 30) 
             
@@ -107,28 +199,33 @@ class CustomChoiceDialog(QDialog):
                 bg_hover = f"border-image: url('{valid_paths.get('hover', valid_paths['normal'])}');"
                 bg_pressed = f"border-image: url('{valid_paths.get('pressed', valid_paths['normal'])}');"
                 
-                # 如果用图就让默认的字变透明隐藏 (如果图自带字了) 或者让它继续显示
+                txt_col = "transparent" if self.outline_button_text else "white"
+                
+                # 如果用图，改为显示白色文字，并通过自定义 paintEvent 模拟黑边
                 btn.setStyleSheet(f"""
-                    QPushButton {{
+                    OutlineButton {{
                         {bg_normal}
                         background: transparent;
-                        color: transparent; 
+                        color: {txt_col}; /* 为了让父类不要画字，由我们的 paintEvent 画 */
+                        font-weight: bold;
+                        font-size: 14px;
                     }}
-                    QPushButton:hover {{ {bg_hover} }}
-                    QPushButton:pressed {{ {bg_pressed} }}
+                    OutlineButton:hover {{ {bg_hover} }}
+                    OutlineButton:pressed {{ {bg_pressed} }}
                 """)
             else:
+                txt_col_def = "transparent" if self.outline_button_text else "white"
                 # 默认苹果红样式
-                btn.setStyleSheet("""
-                    QPushButton {
+                btn.setStyleSheet(f"""
+                    OutlineButton {{
                         background-color: #ff3b30;
-                        color: white;
+                        color: {txt_col_def}; /* 为了一致，这里也隐藏原字 */
                         border-radius: 10px;
                         padding: 5px;
                         font-weight: bold;
-                    }
-                    QPushButton:hover { background-color: #ff5a51; }
-                    QPushButton:pressed { background-color: #d32f27; }
+                    }}
+                    OutlineButton:hover {{ background-color: #ff5a51; }}
+                    OutlineButton:pressed {{ background-color: #d32f27; }}
                 """)
             return btn
 
@@ -146,6 +243,26 @@ class CustomChoiceDialog(QDialog):
         btn_layout.addWidget(btn_cancel)
 
         layout.addLayout(btn_layout)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        
+        # 边界检测，防止超出屏幕
+        screen_geo = QApplication.primaryScreen().availableGeometry()
+        geo = self.frameGeometry()
+        x, y = geo.x(), geo.y()
+        
+        if x + geo.width() > screen_geo.right():
+            x = screen_geo.right() - geo.width()
+        if x < screen_geo.left():
+            x = screen_geo.left()
+            
+        if y + geo.height() > screen_geo.bottom():
+            y = screen_geo.bottom() - geo.height()
+        if y < screen_geo.top():
+            y = screen_geo.top()
+            
+        self.move(int(x), int(y))
 
     def on_desktop(self):
         self.choice = "desktop"

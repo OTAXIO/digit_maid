@@ -1,3 +1,15 @@
+# --------------------
+# 文本描边配置
+# --------------------
+# outline_button_text: 是否给菜单选项与按钮文字加黑边 (默认: true)
+outline_button_text: true
+
+# outline_dialog_text: 是否给对话气泡的文本加黑边 (默认: false)
+outline_dialog_text: false
+
+# outline_dialog_bubble: 是否绘制对话气泡自身的黑色大边框 (默认: false)
+outline_dialog_bubble: false
+
 # 对话框样式配置 (支持透明 PNG 图片)
 # 使用相对于项目根目录的路径（比如：resource/wisdel/bg.png）或绝对路径
 # 如果路径对应的文件不存在，或者留空，就会自动回退到默认的粉色方框和按钮样式
@@ -10,10 +22,10 @@ circular_button_mode: "image"
 
 # 圆形菜单图片按钮路径（相对项目根目录或绝对路径）
 # 普通选项按钮使用 select；返回/退出/翻页按钮使用 quit
-circular_btn_select: "resource\button\select.png"
-circular_btn_quit: "resource\button\quit.png"
+circular_btn_select: "resource\\button\\select.png"
+circular_btn_quit: "resource\\button\\quit.png"
 
-background: "resource\button\background.jpg"
+background: "resource\\button\\background.jpg"
 
 # "桌面"按钮
 btn_desktop_normal: ""

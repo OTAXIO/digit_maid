@@ -14,3 +14,5 @@ app_paths:
     - C:\Netease\CloudMusic\cloudmusic.exe
   鹰角启动:
     - E:\GAME\Hypergryph Launcher\Launcher.exe
+    - C:\Program Files (x86)\Hypergryph Launcher\Launcher.exe
+    - C:\Program Files\Hypergryph Launcher\Launcher.exe

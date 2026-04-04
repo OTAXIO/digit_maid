@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+
+# PyInstaller
+build/
+dist/
+*.spec
+*.pkg
+*.exe
+
+# IDE
+.vscode/
+
+# Other generated files
+*.log

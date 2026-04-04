@@ -268,14 +268,14 @@ class PetWindow(QWidget):
         start_x = getattr(self, 'wander_start_x', self.x())
         
         # 碰到屏幕边缘或者超出50像素则转身
-        if new_x < screen_geo.left() or new_x < start_x - 50:
-            new_x = max(screen_geo.left(), start_x - 50)
+        if new_x < screen_geo.left() or new_x < start_x - 75:
+            new_x = max(screen_geo.left(), start_x - 75)
             self.wander_speed *= -1
             self.is_flipped = False
             if self.current_movie:
                 self.pet_label.setMovie(self.current_movie)
-        elif new_x + self.width() > screen_geo.right() or new_x > start_x + 50:
-            new_x = min(screen_geo.right() - self.width(), start_x + 50)
+        elif new_x + self.width() > screen_geo.right() or new_x > start_x + 75:
+            new_x = min(screen_geo.right() - self.width(), start_x + 75)
             self.wander_speed *= -1
             self.is_flipped = True
             if self.current_movie:
@@ -315,7 +315,8 @@ class PetWindow(QWidget):
             # 播放 sleep
             self.move(self.x() - 10, self.y() + 10)
             self.play_action("sleep")
-            self.inactivity_stage = 3
+            self.inactivity_stage = 0
+            self.inactivity_timer.start(45000)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

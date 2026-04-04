@@ -1,8 +1,8 @@
 import math
 import os
 from PyQt6.QtWidgets import QWidget, QPushButton, QApplication
-from PyQt6.QtCore import Qt, QPropertyAnimation, QRect, QEasingCurve, QPoint, QTimer
-from PyQt6.QtGui import QPainter, QColor
+from PyQt6.QtCore import Qt, QPropertyAnimation, QRect, QEasingCurve, QPoint, QTimer, QPointF
+from PyQt6.QtGui import QPainter, QColor, QPen, QPainterPath
 
 from .choice_dialog import load_dialog_theme
 
@@ -11,23 +11,25 @@ class BubbleButton(QPushButton):
         super().__init__(text, parent)
         self.image_mode = False
         self.setFixedSize(70, 70)
+        
+        # 加载描边配置
+        theme = load_dialog_theme()
+        self.enable_outline = str(theme.get("outline_button_text", "true")).lower() == "true"
 
         if icon_path and os.path.exists(icon_path):
             self.image_mode = True
             self.setFixedSize(80, 80)
             bg_url = icon_path.replace("\\", "/")
-            text_color = "black" if text in ["退出", "返回", "<", ">"] else "white"
+            text_color = "transparent" if self.enable_outline else "white"
             self.setStyleSheet(f"""
                 QPushButton {{
                     border-image: url('{bg_url}');
                     border: none;
                     color: {text_color};
                     font-weight: bold;
-                    font-size: 14px;
-                    padding-top: 50px;
+                    font-size: 15px;
                 }}
             """)
-            #color为字体颜色
             return
 
         if is_back:
@@ -37,7 +39,7 @@ class BubbleButton(QPushButton):
             pressed_bg = "#444444"
         else:
             bg_color = "#c41c1c"
-            border_color = "#cfcecd"
+            border_color = "black"
             hover_bg = "#e32424"
             pressed_bg = "#a81616"
 
@@ -119,6 +121,38 @@ class BubbleButton(QPushButton):
                 self.leave_anim.setEndValue(QRect(int(self.base_x), int(self.base_y), target_w, target_h))
                 self.leave_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
                 self.leave_anim.start(QPropertyAnimation.DeletionPolicy.KeepWhenStopped)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        
+        if getattr(self, "image_mode", False) and getattr(self, "enable_outline", False):
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            text = self.text()
+            rect = self.rect()
+            font = self.font()
+            
+            path = QPainterPath()
+            fm = painter.fontMetrics()
+            text_rect = fm.boundingRect(text)
+            
+            # 由于之前有 padding-top: 50px，我们把文字依然画到底部中间位置
+            # 高度是 80，底部的空间大约是从 45 到 80。
+            padding_top = 45
+            area_height = rect.height() - padding_top
+            
+            x = (rect.width() - text_rect.width()) / 2.0
+            y = padding_top + (area_height + fm.ascent() - fm.descent()) / 2.0
+            
+            path.addText(QPointF(x, y), font, text)
+            
+            pen = QPen(QColor("black"))
+            pen.setWidth(3)
+            painter.setPen(pen)
+            painter.drawPath(path)
+            
+            painter.fillPath(path, QColor("white"))
 
 class CircularMenuWidget(QWidget):
     def __init__(self, items, center_pos, on_close_callback=None, parent=None):
