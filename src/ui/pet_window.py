@@ -86,7 +86,7 @@ class PetWindow(QWidget):
         
         # 计算左下角位置 (加上一点边距)
         x = screen.left() + 100 
-        y = screen.bottom() - pet_height
+        y = screen.bottom() - pet_height + 10
         
         self.setGeometry(x, y, pet_width, pet_height)
         self.setWindowTitle('DigitMaid')
@@ -207,8 +207,8 @@ class PetWindow(QWidget):
             new_y = current_pos.y()
             if new_x + target_width > screen_geo.right():
                 new_x = screen_geo.right() - target_width
-            if new_y + target_height > screen_geo.bottom():
-                new_y = screen_geo.bottom() - target_height
+            if new_y + target_height > screen_geo.bottom() + 10:
+                new_y = screen_geo.bottom() + 10 - target_height
                 
             # 兜底保证左上角不越界
             new_x = max(screen_geo.left(), new_x)
@@ -403,7 +403,7 @@ class PetWindow(QWidget):
                 
                 # 限制在屏幕范围内
                 new_x = max(screen_geo.left(), min(new_pos.x(), screen_geo.right() - self.width()))
-                new_y = max(screen_geo.top(), min(new_pos.y(), screen_geo.bottom() - self.height()))
+                new_y = max(screen_geo.top(), min(new_pos.y(), screen_geo.bottom() - self.height() + 10))
                 
                 # 判断水平移动方向，如果向左移动则翻转
                 is_moving_left = new_x < self.pos().x()
