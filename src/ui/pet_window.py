@@ -41,7 +41,7 @@ class PetWindow(QWidget):
         self.current_movie = None
         self.current_loop = True
         self.menu_interact_mode = False
-        self.special_origin_pos = None
+        self._flip_transform = QTransform().scale(-1, 1)
 
         # 空闲状态机：15秒无交互进入 sit，再15秒无交互进入 sleep
         self.inactivity_stage = 0
@@ -57,7 +57,7 @@ class PetWindow(QWidget):
         # 定时强制置顶计时器，避免被网页全屏等其他抢占焦点的程序压在下方
         self.topmost_timer = QTimer(self)
         self.topmost_timer.timeout.connect(self._keep_on_top)
-        self.topmost_timer.start(500)  # 每半秒置顶一次
+        self.topmost_timer.start(1000)  # 每秒置顶一次，降低事件循环压力
 
         # 先播放 start 动画（若配置不存在则会在底层 fallback 到 idle 或返回 False）
         if not self.play_action("start", force_loop=False):
@@ -68,14 +68,6 @@ class PetWindow(QWidget):
     def _keep_on_top(self):
         # 仅提升Z轴顺序，不窃取焦点，避免影响用户打字
         self.raise_()
-
-    def force_on_top(self):
-        # 强制窗口置顶，应对截图后或是被其他软件抢占焦点后层级丢失
-        flags = self.windowFlags()
-        self.setWindowFlags(flags | Qt.WindowType.WindowStaysOnTopHint)
-        self.show()
-        self.raise_()
-        self.activateWindow()
 
     def initUI(self):
         # ... (保持不变)
@@ -191,6 +183,10 @@ class PetWindow(QWidget):
             return False
 
         if self.current_movie is not None:
+            try:
+                self.current_movie.frameChanged.disconnect(self._on_frame_changed)
+            except (TypeError, RuntimeError):
+                pass
             self.current_movie.stop()
             self.current_movie.deleteLater()
 
@@ -228,7 +224,12 @@ class PetWindow(QWidget):
             
             movie.setScaledSize(QSize(target_width, target_height))
             self.pet_label.setFixedSize(target_width, target_height)
-            self.setGeometry(new_x, new_y, target_width, target_height)
+            # 先刷新布局约束，再执行缩放和位移；否则从大动作切回小动作时
+            # 可能只移动到新 y 而尺寸仍被旧约束卡住，出现“逐次下沉”。
+            if self.layout() is not None:
+                self.layout().activate()
+            self.resize(target_width, target_height)
+            self.move(new_x, new_y)
         if force_loop is None:
             self.current_loop = loop_value
         else:
@@ -253,8 +254,7 @@ class PetWindow(QWidget):
             # 手动提取第一帧进行翻转并上屏
             pixmap = movie.currentPixmap()
             if not pixmap.isNull():
-                transform = QTransform().scale(-1, 1)
-                self.pet_label.setPixmap(pixmap.transformed(transform))
+                self.pet_label.setPixmap(pixmap.transformed(self._flip_transform))
         
         # 只有在 idle 状态下才允许计时器流动
         if action_name == "idle" and hasattr(self, 'inactivity_timer'):
@@ -263,20 +263,23 @@ class PetWindow(QWidget):
         return True
 
     def _on_frame_changed(self, frame_number):
-        if self.current_movie is None:
+        sender_movie = self.sender()
+        if sender_movie is None or sender_movie is not self.current_movie:
             return
             
         # 如果需要左右翻转，每帧渲染时手动更新 QLabel
         if getattr(self, "is_flipped", False):
-            pixmap = self.current_movie.currentPixmap()
+            pixmap = sender_movie.currentPixmap()
             if not pixmap.isNull():
-                transform = QTransform().scale(-1, 1)
-                self.pet_label.setPixmap(pixmap.transformed(transform))
+                self.pet_label.setPixmap(pixmap.transformed(self._flip_transform))
                 
         # 检查是否到达最后一帧
-        if frame_number >= self.current_movie.frameCount() - 1:
+        frame_count = sender_movie.frameCount()
+        if frame_count <= 0:
+            return
+        if frame_number >= frame_count - 1:
             if not self.current_loop:
-                self.current_movie.stop()
+                sender_movie.stop()
                 self._on_action_finished()
 
     def _on_action_finished(self):
@@ -289,7 +292,8 @@ class PetWindow(QWidget):
                 QApplication.instance().quit()
             else:
                 # 非循环动作结束后回到 idle，play_action 内部会自动接管并重新启动计时器
-                self.play_action("idle")
+                if self.current_action != "idle":
+                    self.play_action("idle")
 
     def _on_wander_tick(self):
         if self.current_action != "move" or self.inactivity_stage != 1:
@@ -361,10 +365,6 @@ class PetWindow(QWidget):
 
             self.offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self._is_dragging = False
-            
-            # 打断准备阶段
-            if getattr(self, '_is_preparing_special', False):
-                self._is_preparing_special = False
                 
             # 按下的瞬间暂停计时防挂机
             if self.current_action == "idle":
@@ -374,8 +374,8 @@ class PetWindow(QWidget):
             # 右击也可以关闭当前弹出的提示气泡
             self.dialogue_system.hide_dialogue()
             
-            # 在 special 或者准备阶段忽略呼出菜单
-            if self.current_action == "special" or getattr(self, '_is_preparing_special', False):
+            # 在 special 阶段忽略呼出菜单
+            if self.current_action == "special":
                 return
                 
             # 菜单打开期间循环 interact
@@ -410,10 +410,6 @@ class PetWindow(QWidget):
         if event.buttons() & Qt.MouseButton.LeftButton:
             # 拖拽时打断对话框
             self.dialogue_system.hide_dialogue()
-            
-            # 如果处于特殊动作准备阶段（向右平移），只要用户一拖拽立马打断
-            if getattr(self, '_is_preparing_special', False):
-                self._is_preparing_special = False
                 
             # 只有双击0.5秒后的拖动才被认为是真实的拖拽互动，立刻打断动作变为move
             if time.time() - getattr(self, '_last_double_click_time', 0) > 0.5:

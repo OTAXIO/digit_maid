@@ -1,17 +1,9 @@
 from PyQt6.QtWidgets import QMenu, QApplication
 from PyQt6.QtGui import QAction
-from PyQt6.QtCore import QTimer
-import sys
+from PyQt6.QtCore import QTimer, QObject, QEvent
 import os
-import time
-
-# 导入功能模块
-# 为了方便导入，可以在这里临时添加一下路径，或者在 main 中处理
-import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
-from src.function import screen_shot, open_app
+from src.function import screen_shot, open_app, startup
 from src.function.open_app import load_app_paths
-from src.function import startup
 from src.input import choice_dialog
 from src.input.choice_dialog import load_dialog_theme
 from src.input.circular_menu import CircularMenuWidget
@@ -39,7 +31,6 @@ class PetActions:
         menu = QMenu(self.parent)
 
         # 尝试应用 dialog_style.yaml 中的背景
-        theme = load_dialog_theme()
         bg_path = theme.get("background", "")
         if bg_path:
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
@@ -104,8 +95,6 @@ class PetActions:
         menu.addAction(action_quit)
 
         # 添加 15 秒无操作自动关闭
-        from PyQt6.QtCore import QObject, QEvent
-        
         menu_timer = QTimer(self.parent)
         menu_timer.setSingleShot(True)
         menu_timer.timeout.connect(menu.close)
@@ -155,8 +144,6 @@ class PetActions:
         ]
         
         # 把中心点设在桌宠的正上方一点或正中心
-        center_x = self.parent.x() + self.parent.width() // 2
-        center_y = self.parent.y() + self.parent.height() // 2
         center_point = self.parent.mapToGlobal(self.parent.rect().center())
         
         # 实例化并显示全屏的透明菜单窗体

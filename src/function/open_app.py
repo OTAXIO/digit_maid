@@ -1,15 +1,24 @@
 import os
 import subprocess
-from datetime import datetime
 import platform
-from PyQt6.QtWidgets import QApplication
+
+_APP_PATH_CACHE = {
+    "mtime": None,
+    "data": {},
+}
 
 def load_app_paths():
     """解析简单的 YAML 文件读取应用路径配置"""
     config_path = os.path.join(os.path.dirname(__file__), "apps.yaml")
     apps = {}
     if not os.path.exists(config_path):
+        _APP_PATH_CACHE["mtime"] = None
+        _APP_PATH_CACHE["data"] = {}
         return apps
+
+    mtime = os.path.getmtime(config_path)
+    if _APP_PATH_CACHE["mtime"] == mtime:
+        return _APP_PATH_CACHE["data"]
         
     try:
         with open(config_path, "r", encoding="utf-8") as f:
@@ -29,6 +38,9 @@ def load_app_paths():
                     apps[current_app].append(path)
     except Exception as e:
         print(f"读取 apps.yaml 失败: {e}")
+
+    _APP_PATH_CACHE["mtime"] = mtime
+    _APP_PATH_CACHE["data"] = apps
     return apps
 
 def open_application(app_name):
@@ -74,32 +86,3 @@ def open_application(app_name):
             
     except Exception as e:
         return f"启动失败: {e}"
-
-def capture_screen_content():
-    """
-    捕获当前屏幕并保存到 resource 文件夹
-    """
-    try:
-        # 获取 workspace 根目录（假设相对于当前文件位置）
-        # src/features/automation.py -> src/features -> src -> root
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        root_dir = os.path.dirname(os.path.dirname(current_dir))
-        resource_dir = os.path.join(root_dir, "resource")
-        
-        if not os.path.exists(resource_dir):
-            os.makedirs(resource_dir)
-            
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"screenshot_{timestamp}.png"
-        filepath = os.path.join(resource_dir, filename)
-        
-        app = QApplication.instance()
-        if app:
-            screen = app.primaryScreen()
-            pixmap = screen.grabWindow(0)
-            pixmap.save(filepath, 'PNG')
-            return f"屏幕已截图，保存为: {filename}"
-        else:
-            return "截图失败: 找不到 QApplication 实例"
-    except Exception as e:
-        return f"截图失败: {e}"
