@@ -1,13 +1,35 @@
 import math
+import os
 from PyQt6.QtWidgets import QWidget, QPushButton, QApplication
 from PyQt6.QtCore import Qt, QPropertyAnimation, QRect, QEasingCurve, QPoint, QTimer
 from PyQt6.QtGui import QPainter, QColor
 
+from .choice_dialog import load_dialog_theme
+
 class BubbleButton(QPushButton):
-    def __init__(self, text, is_back=False, parent=None):
+    def __init__(self, text, is_back=False, icon_path=None, parent=None):
         super().__init__(text, parent)
+        self.image_mode = False
         self.setFixedSize(70, 70)
-        
+
+        if icon_path and os.path.exists(icon_path):
+            self.image_mode = True
+            self.setFixedSize(80, 80)
+            bg_url = icon_path.replace("\\", "/")
+            text_color = "black" if text in ["退出", "返回", "<", ">"] else "white"
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    border-image: url('{bg_url}');
+                    border: none;
+                    color: {text_color};
+                    font-weight: bold;
+                    font-size: 14px;
+                    padding-top: 50px;
+                }}
+            """)
+            #color为字体颜色
+            return
+
         if is_back:
             bg_color = "#cfcecd"
             border_color = "#c41c1c"
@@ -35,6 +57,16 @@ class BubbleButton(QPushButton):
             }}
         """)
 
+    def hitButton(self, pos):
+        # 统一使用默认的圆形判定区，图片模式则在此基础上多加5像素半径
+        cx = self.width() / 2
+        cy = self.height() / 2
+        dx = pos.x() - cx
+        dy = pos.y() - cy
+        
+        hit_r = 40 if self.image_mode else 35
+        return (dx * dx + dy * dy) <= (hit_r * hit_r)
+
     def set_target_pos(self, x, y, angle):
         self.base_x = x
         self.base_y = y
@@ -44,9 +76,13 @@ class BubbleButton(QPushButton):
         super().enterEvent(event)
         self.raise_()
         if hasattr(self, 'base_x') and hasattr(self, 'base_y') and hasattr(self, 'angle'):
-            hover_x = self.base_x + 10 * math.cos(self.angle)
-            hover_y = self.base_y - 10 * math.sin(self.angle)
+            shift_dist = 5 if self.image_mode else 10
+            hover_x = self.base_x + shift_dist * math.cos(self.angle)
+            hover_y = self.base_y - shift_dist * math.sin(self.angle)
             
+            target_w = 80 if self.image_mode else 70
+            target_h = 80 if self.image_mode else 70
+
             if hasattr(self, 'anim') and self.anim.state() == QPropertyAnimation.State.Running:
                 # 初始展开动画还没完成，不要打断
                 pass
@@ -59,13 +95,16 @@ class BubbleButton(QPushButton):
                 self.hover_anim = QPropertyAnimation(self, b"geometry")
                 self.hover_anim.setDuration(100)
                 self.hover_anim.setStartValue(self.geometry())
-                self.hover_anim.setEndValue(QRect(int(hover_x), int(hover_y), self.width(), self.height()))
+                self.hover_anim.setEndValue(QRect(int(hover_x), int(hover_y), target_w, target_h))
                 self.hover_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
                 self.hover_anim.start(QPropertyAnimation.DeletionPolicy.KeepWhenStopped)
 
     def leaveEvent(self, event):
         super().leaveEvent(event)
         if hasattr(self, 'base_x') and hasattr(self, 'base_y'):
+            target_w = 80 if self.image_mode else 70
+            target_h = 80 if self.image_mode else 70
+
             if hasattr(self, 'anim') and self.anim.state() == QPropertyAnimation.State.Running:
                 pass
             else:
@@ -77,7 +116,7 @@ class BubbleButton(QPushButton):
                 self.leave_anim = QPropertyAnimation(self, b"geometry")
                 self.leave_anim.setDuration(100)
                 self.leave_anim.setStartValue(self.geometry())
-                self.leave_anim.setEndValue(QRect(int(self.base_x), int(self.base_y), self.width(), self.height()))
+                self.leave_anim.setEndValue(QRect(int(self.base_x), int(self.base_y), target_w, target_h))
                 self.leave_anim.setEasingCurve(QEasingCurve.Type.OutQuad)
                 self.leave_anim.start(QPropertyAnimation.DeletionPolicy.KeepWhenStopped)
 
@@ -97,6 +136,12 @@ class CircularMenuWidget(QWidget):
         
         self.center_pos = center_pos
         self.on_close_callback = on_close_callback
+
+        self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+        self.theme = load_dialog_theme()
+        self.use_image_buttons = self.theme.get("circular_button_mode", "default").lower() == "image"
+        self.select_btn_path = self._resolve_theme_path(self.theme.get("circular_btn_select", ""))
+        self.quit_btn_path = self._resolve_theme_path(self.theme.get("circular_btn_quit", ""))
         
         self.history = [] # Stack of (items, page_idx)
         self.current_items = items
@@ -104,6 +149,16 @@ class CircularMenuWidget(QWidget):
         self.buttons = []
         
         self._build_menu()
+
+    def _resolve_theme_path(self, path_val):
+        if not path_val:
+            return None
+        path_val = path_val.strip().strip("'\"")
+        if not path_val:
+            return None
+        if not os.path.isabs(path_val):
+            path_val = os.path.join(self.root_dir, path_val)
+        return path_val if os.path.exists(path_val) else None
         
     def _build_menu(self):
         # Clear old buttons
@@ -111,7 +166,7 @@ class CircularMenuWidget(QWidget):
             btn.deleteLater()
         self.buttons.clear()
         
-        R = 120 # Radius of the arc
+        R = 120 if self.use_image_buttons else 120  # 图片模式下离桌宠距离减少10个像素
         
         # Separate special items from regular ones
         regular_items = []
@@ -159,7 +214,8 @@ class CircularMenuWidget(QWidget):
         else:
             # 智能判断可用的角度范围
             screen_geo = QApplication.primaryScreen().availableGeometry()
-            margin = R + 45  # 半径 + 按钮半径(35) + 边距(10)
+            btn_half = 40 if self.use_image_buttons else 35
+            margin = R + btn_half + 10  # 半径 + 按钮半径 + 边距
             
             can_up = (self.center_pos.y() - screen_geo.top()) >= margin
             can_down = (screen_geo.bottom() - self.center_pos.y()) >= margin
@@ -211,7 +267,14 @@ class CircularMenuWidget(QWidget):
             
         for i, item in enumerate(display_items):
             is_special_btn = (item['label'] in ['返回', '退出', '<', '>'])
-            btn = BubbleButton(item['label'], is_back=is_special_btn, parent=self)
+            icon_path = None
+            if self.use_image_buttons:
+                if is_special_btn:
+                    icon_path = self.quit_btn_path
+                else:
+                    icon_path = self.select_btn_path
+
+            btn = BubbleButton(item['label'], is_back=is_special_btn, icon_path=icon_path, parent=self)
             
             # Target position
             tar_x = self.center_pos.x() + R * math.cos(angles[i]) - btn.width() / 2

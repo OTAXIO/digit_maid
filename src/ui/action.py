@@ -11,6 +11,7 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
 from src.function import screen_shot, open_app
 from src.function.open_app import load_app_paths
+from src.function import startup
 from src.input import choice_dialog
 from src.input.choice_dialog import load_dialog_theme
 from src.input.circular_menu import CircularMenuWidget
@@ -91,6 +92,12 @@ class PetActions:
         action_screenshot = QAction('截图', self.parent)
         action_screenshot.triggered.connect(self.do_screenshot)
         menu.addAction(action_screenshot)
+
+        action_startup = QAction('开机自启动', self.parent)
+        action_startup.setCheckable(True)
+        action_startup.setChecked(startup.is_startup_enabled())
+        action_startup.triggered.connect(lambda checked: self.toggle_startup(checked))
+        menu.addAction(action_startup)
         
         action_quit = QAction('退出', self.parent)
         action_quit.triggered.connect(QApplication.instance().quit)
@@ -121,9 +128,11 @@ class PetActions:
         ]
 
         # 构造顶层选项
+        setting_label = [{'label': '关闭自启动' if startup.is_startup_enabled() else '开启自启动','action': self.toggle_startup}]
         top_items = [
             {'label': 'APP', 'action': app_sub_items},
             {'label': '截图', 'action': screenshot_sub_items},
+            {'label': "设置", 'action': setting_label},
             {'label': '退出', 'action': QApplication.instance().quit}
         ]
         
@@ -228,3 +237,13 @@ class PetActions:
         result = open_app.open_application(app_name)
         print(result)
         self.dialogue.show_message("打开软件", result)
+
+    def toggle_startup(self, enabled=None):
+        if enabled is None:
+            enabled = not startup.is_startup_enabled()
+
+        ok, result = startup.set_startup_enabled(bool(enabled))
+        print(result)
+        self.dialogue.show_message("开机自启动", result)
+
+        return ok
