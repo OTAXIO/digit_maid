@@ -138,7 +138,6 @@ class PetActions:
         setting_label = [{'label': '关闭自启动' if startup.is_startup_enabled() else '开启自启动','action': self.toggle_startup}]
         top_items = [
             {'label': 'APP', 'action': app_sub_items},
-            {'label': 'VPN', 'action': lambda: self.do_open_app("v2rayN")},
             {'label': '截图', 'action': screenshot_sub_items},
             {'label': "设置", 'action': setting_label},
             {'label': '退出', 'action': self.trigger_quit}
