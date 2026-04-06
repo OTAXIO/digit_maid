@@ -161,12 +161,12 @@ class PetActions:
         except (TypeError, ValueError):
             scale = 1.0
 
-        # 放大时按半幅跟随；缩小时按 1:1 跟随，最小 0.4
+        # 放大时按 0.75 幅跟随；缩小时按 1:1 跟随，仅保留下限 0.4
         if scale >= 1.0:
-            mapped = 1.0 + (scale - 1.0) * 0.5
+            mapped = 1.0 + (scale - 1.0) * 0.75
         else:
             mapped = scale
-        return max(0.4, min(2.5, mapped))
+        return max(0.4, mapped)
 
     def show_context_menu(self, global_pos):
         # 拦截：如果气泡菜单已经存在并且开着，重复右击则关闭它（相当于开关切换）

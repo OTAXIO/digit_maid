@@ -11,7 +11,7 @@ class BubbleButton(QPushButton):
         super().__init__(text, parent)
         self.image_mode = False
         # 按菜单缩放比例缩放按钮，缩小时下限为 0.4
-        self.ui_scale = max(0.4, min(2.5, float(ui_scale)))
+        self.ui_scale = max(0.4, float(ui_scale))
         self.default_size = max(28, int(70 * self.ui_scale))
         self.image_size = max(32, int(80 * self.ui_scale))
         self.text_hover_size = max(self.default_size, int(self.default_size * 1.08))
@@ -193,7 +193,7 @@ class CircularMenuWidget(QWidget):
         self.center_pos = center_pos
         self.on_close_callback = on_close_callback
         # 菜单可随桌宠缩小，最小 0.4
-        self.menu_scale = max(0.4, min(2.5, float(menu_scale)))
+        self.menu_scale = max(0.4, float(menu_scale))
         self.pet_widget = parent
 
         self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
@@ -226,10 +226,10 @@ class CircularMenuWidget(QWidget):
             scale = 1.0
 
         if scale >= 1.0:
-            mapped = 1.0 + (scale - 1.0) * 0.5
+            mapped = 1.0 + (scale - 1.0) * 0.75
         else:
             mapped = scale
-        return max(0.4, min(2.5, mapped))
+        return max(0.4, mapped)
 
     def sync_menu_scale_from_pet(self):
         if self.pet_widget is None:
@@ -280,20 +280,6 @@ class CircularMenuWidget(QWidget):
         
         btn_half = max(14, int((80 if self.use_image_buttons else 70) * self.menu_scale / 2))
         R = max(48, int(120 * self.menu_scale))
-        if self.menu_scale > 1.0 and self.pet_widget is not None:
-            # 放大桌宠时拉开菜单半径，避免选项被桌宠遮住
-            raw_pet_w = max(1, int(self.pet_widget.width()))
-            raw_pet_h = max(1, int(self.pet_widget.height()))
-            user_scale = float(getattr(self.pet_widget, "user_scale", 1.0))
-            user_scale = max(1.0, user_scale)
-            # 半径变化与桌宠变化同样按“一半幅度”跟随
-            effective_scale = self._menu_scale_from_pet_scale(user_scale)
-            capped_ratio = effective_scale / user_scale
-            pet_w = max(1, int(round(raw_pet_w * capped_ratio)))
-            pet_h = max(1, int(round(raw_pet_h * capped_ratio)))
-            pet_radius = int(math.hypot(pet_w, pet_h) / 2)
-            clearance = max(12, int(12 * self.menu_scale))
-            R = max(R, pet_radius + btn_half + clearance)
         
         # Separate special items from regular ones
         regular_items = []

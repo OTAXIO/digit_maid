@@ -104,10 +104,10 @@ class SpeechBubble(QWidget):
             scale = 1.0
 
         if scale >= 1.0:
-            mapped = 1.0 + (scale - 1.0) * 0.5
+            mapped = 1.0 + (scale - 1.0) * 0.75
         else:
             mapped = scale
-        return max(0.4, min(2.5, mapped))
+        return max(0.4, mapped)
 
     def _resolve_ui_scale(self):
         if self.target is None:
@@ -118,21 +118,10 @@ class SpeechBubble(QWidget):
         btn_half = max(14, int((80 if self.use_image_buttons else 70) * ui_scale / 2))
         radius = max(48, int(120 * ui_scale))
 
-        if ui_scale > 1.0 and self.target is not None:
-            raw_pet_w = max(1, int(self.target.width()))
-            raw_pet_h = max(1, int(self.target.height()))
-            user_scale = max(1.0, float(getattr(self.target, "user_scale", 1.0)))
-            capped_ratio = ui_scale / user_scale
-            pet_w = max(1, int(round(raw_pet_w * capped_ratio)))
-            pet_h = max(1, int(round(raw_pet_h * capped_ratio)))
-            pet_radius = int(math.hypot(pet_w, pet_h) / 2)
-            clearance = max(12, int(12 * ui_scale))
-            radius = max(radius, pet_radius + btn_half + clearance)
-
         return radius
 
     def _apply_scaled_style(self, ui_scale, force=False):
-        ui_scale = max(0.4, min(2.5, float(ui_scale)))
+        ui_scale = max(0.4, float(ui_scale))
         if not force and abs(ui_scale - self.ui_scale) <= 1e-6:
             return False
 
