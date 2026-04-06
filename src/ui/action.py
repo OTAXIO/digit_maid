@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QMenu, QApplication
+from PyQt6.QtWidgets import QMenu, QApplication, QInputDialog
 from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtCore import QTimer, QObject, QEvent
 import os
@@ -73,6 +73,36 @@ class PetActions:
 
         self.dialogue.show_message("下落模式", f"已切换为: {self.FALL_MODE_LABELS[mode]}")
         return True
+
+    def _apply_pet_scale(self, scale_value, tip_prefix=""):
+        if hasattr(self.parent, "set_pet_scale_factor"):
+            ok, detail = self.parent.set_pet_scale_factor(scale_value)
+        else:
+            ok, detail = False, "当前窗口不支持缩放"
+
+        if ok:
+            msg = f"{tip_prefix}，{detail}" if tip_prefix else detail
+            self.dialogue.show_message("放大缩小", msg)
+        else:
+            self.dialogue.show_message("放大缩小", detail or "调整大小失败")
+        return ok
+
+    def _set_custom_pet_scale(self):
+        min_scale = float(getattr(self.parent, "min_user_scale", 0.2))
+        max_scale = float(getattr(self.parent, "max_user_scale", 5.0))
+        current_scale = float(getattr(self.parent, "user_scale", 1.0))
+        value, ok = QInputDialog.getDouble(
+            self.parent,
+            "自定义大小",
+            f"请输入缩放倍数 ({min_scale:.1f} - {max_scale:.1f}):",
+            current_scale,
+            min_scale,
+            max_scale,
+            2,
+        )
+        if not ok:
+            return False
+        return self._apply_pet_scale(value, f"已设置为 {value:.2f} 倍")
 
     def show_context_menu(self, global_pos):
         # 拦截：如果气泡菜单已经存在并且开着，重复右击则关闭它（相当于开关切换）
@@ -166,6 +196,30 @@ class PetActions:
 
         settings_menu = menu.addMenu("设置")
 
+        scale_menu = settings_menu.addMenu("放大缩小")
+
+        action_scale_reset = QAction('还原原大小', self.parent)
+        action_scale_reset.triggered.connect(
+            lambda checked: self._apply_pet_scale(1.0, "已还原原大小 (70x70)")
+        )
+        scale_menu.addAction(action_scale_reset)
+
+        action_scale_up = QAction('放大1.5倍', self.parent)
+        action_scale_up.triggered.connect(
+            lambda checked: self._apply_pet_scale(1.5, "已放大到 1.5 倍")
+        )
+        scale_menu.addAction(action_scale_up)
+
+        action_scale_down = QAction('缩小为0.6倍', self.parent)
+        action_scale_down.triggered.connect(
+            lambda checked: self._apply_pet_scale(0.6, "已缩小到 0.6 倍")
+        )
+        scale_menu.addAction(action_scale_down)
+
+        action_scale_custom = QAction('自定义大小', self.parent)
+        action_scale_custom.triggered.connect(lambda checked: self._set_custom_pet_scale())
+        scale_menu.addAction(action_scale_custom)
+
         action_startup = QAction('开机自启动', self.parent)
         action_startup.setCheckable(True)
         action_startup.setChecked(startup.is_startup_enabled())
@@ -239,8 +293,16 @@ class PetActions:
             for mode, label in self.FALL_MODE_LABELS.items()
         ]
 
+        scale_sub_items = [
+            {'label': '还原原大小', 'action': lambda: self._apply_pet_scale(1.0, "已还原原大小")},
+            {'label': '放大1.5倍', 'action': lambda: self._apply_pet_scale(1.5, "已放大到 1.5 倍")},
+            {'label': '缩小为0.6倍', 'action': lambda: self._apply_pet_scale(0.6, "已缩小到 0.6 倍")},
+            {'label': '自定义大小', 'action': self._set_custom_pet_scale},
+        ]
+
         # 构造顶层选项
         setting_label = [
+            {'label': '放大缩小', 'action': scale_sub_items},
             {'label': '下落模式', 'action': fall_mode_sub_items},
             {'label': '关闭自启动' if startup.is_startup_enabled() else '开启自启动', 'action': self.toggle_startup},
         ]

@@ -15,6 +15,10 @@ from .action import PetActions
 class PetWindow(QWidget):
     def __init__(self):
         super().__init__()
+
+        # 默认桌宠大小基准（缩放倍率为 1.0 时）
+        self.default_pet_width = 70
+        self.default_pet_height = 70
         
         self.initUI()
         self.offset = QPoint()
@@ -45,8 +49,8 @@ class PetWindow(QWidget):
         self._flip_transform = QTransform().scale(-1, 1)
         self.base_render_scale = 0.5
         self.user_scale = 1.0
-        self.min_user_scale = 0.5
-        self.max_user_scale = 2.5
+        self.min_user_scale = 0.2
+        self.max_user_scale = 5.0
         self.scale_step = 0.1
         self._source_frame_size = None
 
@@ -101,8 +105,8 @@ class PetWindow(QWidget):
         
         # 获取屏幕尺寸
         screen = QApplication.primaryScreen().availableGeometry()
-        pet_width = 85
-        pet_height = 85
+        pet_width = self.default_pet_width
+        pet_height = self.default_pet_height
         
         # 计算左下角位置 (加上一点边距)
         x = screen.left() + 100 
@@ -239,12 +243,10 @@ class PetWindow(QWidget):
         if not frame_size.isEmpty():
             self._source_frame_size = QSize(frame_size.width(), frame_size.height())
             current_pos = self.pos()
-            old_width = self.width()
             old_height = self.height()
             screen_geo = self.screen().availableGeometry()
-            
-            target_width = max(1, int(frame_size.width() * self.base_render_scale * self.user_scale))
-            target_height = max(1, int(frame_size.height() * self.base_render_scale * self.user_scale))
+
+            target_width, target_height = self._get_target_pet_size()
             
             # 保持桌宠的左下角不发生偏移（防止不同宽高且大小不一的动作导致位置乱跳）
             left_x = current_pos.x()
@@ -303,20 +305,55 @@ class PetWindow(QWidget):
             
         return True
 
+    def _get_target_pet_size(self):
+        target_width = max(1, int(round(self.default_pet_width * self.user_scale)))
+        target_height = max(1, int(round(self.default_pet_height * self.user_scale)))
+        return target_width, target_height
+
     def _clamp_user_scale(self, value):
         return max(self.min_user_scale, min(self.max_user_scale, value))
 
+    def set_pet_scale_factor(self, value):
+        try:
+            target_scale = float(value)
+        except (TypeError, ValueError):
+            return False, "请输入 0.2 到 5.0 之间的数字"
+
+        self.user_scale = self._clamp_user_scale(target_scale)
+        if self._apply_user_scale_to_current_movie():
+            return True, f"当前大小: {self.width()}x{self.height()}，缩放倍数: {self.user_scale:.2f}"
+
+        # 没有当前动画时，也按默认尺寸缩放窗口，保持设置即时生效
+        target_width, target_height = self._get_target_pet_size()
+        current_pos = self.pos()
+        old_height = self.height()
+        screen_geo = self.screen().availableGeometry()
+
+        left_x = current_pos.x()
+        bottom_y = current_pos.y() + old_height
+        new_x = left_x
+        new_y = bottom_y - target_height
+
+        if new_x + target_width > screen_geo.right():
+            new_x = screen_geo.right() - target_width
+        if new_y + target_height > screen_geo.bottom() + 10:
+            new_y = screen_geo.bottom() + 10 - target_height
+
+        new_x = max(screen_geo.left(), new_x)
+        new_y = max(screen_geo.top(), new_y)
+
+        self.pet_label.setFixedSize(target_width, target_height)
+        if self.layout() is not None:
+            self.layout().activate()
+        self.resize(target_width, target_height)
+        self.move(new_x, new_y)
+        return True, f"当前大小: {self.width()}x{self.height()}，缩放倍数: {self.user_scale:.2f}"
+
     def _apply_user_scale_to_current_movie(self):
-        if self.current_movie is None or self._source_frame_size is None:
+        if self.current_movie is None:
             return False
 
-        source_w = self._source_frame_size.width()
-        source_h = self._source_frame_size.height()
-        if source_w <= 0 or source_h <= 0:
-            return False
-
-        target_width = max(1, int(source_w * self.base_render_scale * self.user_scale))
-        target_height = max(1, int(source_h * self.base_render_scale * self.user_scale))
+        target_width, target_height = self._get_target_pet_size()
 
         current_pos = self.pos()
         old_height = self.height()

@@ -25,7 +25,8 @@ class BubbleButton(QPushButton):
             self.image_mode = True
             self.setFixedSize(self.image_size, self.image_size)
             bg_url = icon_path.replace("\\", "/")
-            text_color = "transparent" if self.enable_outline else "white"
+            self.text_color = "white"
+            display_color = "transparent" if self.enable_outline else self.text_color
             font_px = max(10, int(15 * self.ui_scale))
             self.setStyleSheet(f"""
                 QPushButton {{
