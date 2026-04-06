@@ -90,6 +90,20 @@ class PetActions:
             return
 
         menu = QMenu(self.parent)
+        scale = float(getattr(self.parent, "user_scale", 1.0))
+        scale = max(0.5, min(2.5, scale))
+        border_px = max(1, int(2 * scale))
+        radius_px = max(6, int(10 * scale))
+        menu_pad_px = max(2, int(5 * scale))
+        item_vpad_px = max(2, int(5 * scale))
+        item_hpad_px = max(8, int(20 * scale))
+        item_radius_px = max(4, int(5 * scale))
+        sep_h_px = max(1, int(2 * scale))
+        sep_margin_v_px = max(2, int(5 * scale))
+        sep_margin_h_px = max(4, int(10 * scale))
+        font_px = max(12, int(14 * scale))
+
+        menu_bg_css = "background-color: rgba(250, 250, 250, 220);"
 
         # 尝试应用 dialog_style.yaml 中的背景
         bg_path = theme.get("background", "")
@@ -101,34 +115,39 @@ class PetActions:
             if os.path.exists(bg_path):
                 bg_url = bg_path.replace("\\", "/")
                 # 为 QMenu 及其子菜单设置统一样式
-                menu_qss = f"""
-                    QMenu {{
-                        background-image: url("{bg_url}");
-                        background-repeat: no-repeat;
-                        background-position: left top;
-                        background-color: rgba(250, 250, 250, 220); 
-                        border: 2px solid #ff3b30;
-                        border-radius: 10px;
-                        padding: 5px;
-                    }}
-                    QMenu::item {{
-                        padding: 5px 20px 5px 20px;
-                        color: #333;
-                        font-weight: bold;
-                        border-radius: 5px;
-                    }}
-                    QMenu::item:selected {{
-                        background-color: #ff3b30;
-                        color: white;
-                    }}
-                    QMenu::separator {{
-                        height: 2px;
-                        background: #ff3b30;
-                        margin: 5px 10px 5px 10px;
-                    }}
-                """
-                # 设置当前菜单和子菜单的样式
-                menu.setStyleSheet(menu_qss)
+                menu_bg_css = (
+                    f'background-image: url("{bg_url}");'
+                    "background-repeat: no-repeat;"
+                    "background-position: left top;"
+                    "background-color: rgba(250, 250, 250, 220);"
+                )
+
+        menu_qss = f"""
+            QMenu {{
+                {menu_bg_css}
+                border: {border_px}px solid #ff3b30;
+                border-radius: {radius_px}px;
+                padding: {menu_pad_px}px;
+            }}
+            QMenu::item {{
+                padding: {item_vpad_px}px {item_hpad_px}px {item_vpad_px}px {item_hpad_px}px;
+                color: #333;
+                font-weight: bold;
+                font-size: {font_px}px;
+                border-radius: {item_radius_px}px;
+            }}
+            QMenu::item:selected {{
+                background-color: #ff3b30;
+                color: white;
+            }}
+            QMenu::separator {{
+                height: {sep_h_px}px;
+                background: #ff3b30;
+                margin: {sep_margin_v_px}px {sep_margin_h_px}px {sep_margin_v_px}px {sep_margin_h_px}px;
+            }}
+        """
+        # 设置当前菜单和子菜单的样式
+        menu.setStyleSheet(menu_qss)
 
         # 打开常用软件子菜单
         app_menu = menu.addMenu("APP")
@@ -240,6 +259,7 @@ class PetActions:
             items=top_items,
             center_pos=center_point,
             on_close_callback=lambda: self.on_circular_menu_closed(),
+            menu_scale=float(getattr(self.parent, "user_scale", 1.0)),
             parent=self.parent
         )
         self.circular_menu.show()

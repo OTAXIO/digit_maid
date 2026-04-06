@@ -43,6 +43,12 @@ class PetWindow(QWidget):
         self.current_loop = True
         self.menu_interact_mode = False
         self._flip_transform = QTransform().scale(-1, 1)
+        self.base_render_scale = 0.5
+        self.user_scale = 1.0
+        self.min_user_scale = 0.5
+        self.max_user_scale = 2.5
+        self.scale_step = 0.1
+        self._source_frame_size = None
 
         # 空闲状态机：15秒无交互进入 sit，再15秒无交互进入 sleep
         self.inactivity_stage = 0
@@ -228,16 +234,17 @@ class PetWindow(QWidget):
         movie = QMovie(gif_path, parent=self)
         movie.jumpToFrame(0)
 
-        # 获取 GIF 原始像素，缩放一倍显示
+        # 获取 GIF 原始像素，并按 base_render_scale * user_scale 进行缩放显示
         frame_size = movie.currentImage().size()
         if not frame_size.isEmpty():
+            self._source_frame_size = QSize(frame_size.width(), frame_size.height())
             current_pos = self.pos()
             old_width = self.width()
             old_height = self.height()
             screen_geo = self.screen().availableGeometry()
             
-            target_width = frame_size.width() // 2
-            target_height = frame_size.height() // 2
+            target_width = max(1, int(frame_size.width() * self.base_render_scale * self.user_scale))
+            target_height = max(1, int(frame_size.height() * self.base_render_scale * self.user_scale))
             
             # 保持桌宠的左下角不发生偏移（防止不同宽高且大小不一的动作导致位置乱跳）
             left_x = current_pos.x()
@@ -294,6 +301,46 @@ class PetWindow(QWidget):
         if action_name == "idle" and hasattr(self, 'inactivity_timer'):
             self._reset_inactivity_timer()
             
+        return True
+
+    def _clamp_user_scale(self, value):
+        return max(self.min_user_scale, min(self.max_user_scale, value))
+
+    def _apply_user_scale_to_current_movie(self):
+        if self.current_movie is None or self._source_frame_size is None:
+            return False
+
+        source_w = self._source_frame_size.width()
+        source_h = self._source_frame_size.height()
+        if source_w <= 0 or source_h <= 0:
+            return False
+
+        target_width = max(1, int(source_w * self.base_render_scale * self.user_scale))
+        target_height = max(1, int(source_h * self.base_render_scale * self.user_scale))
+
+        current_pos = self.pos()
+        old_height = self.height()
+        screen_geo = self.screen().availableGeometry()
+
+        left_x = current_pos.x()
+        bottom_y = current_pos.y() + old_height
+        new_x = left_x
+        new_y = bottom_y - target_height
+
+        if new_x + target_width > screen_geo.right():
+            new_x = screen_geo.right() - target_width
+        if new_y + target_height > screen_geo.bottom() + 10:
+            new_y = screen_geo.bottom() + 10 - target_height
+
+        new_x = max(screen_geo.left(), new_x)
+        new_y = max(screen_geo.top(), new_y)
+
+        self.current_movie.setScaledSize(QSize(target_width, target_height))
+        self.pet_label.setFixedSize(target_width, target_height)
+        if self.layout() is not None:
+            self.layout().activate()
+        self.resize(target_width, target_height)
+        self.move(new_x, new_y)
         return True
 
     def _on_frame_changed(self, frame_number):
@@ -679,6 +726,25 @@ class PetWindow(QWidget):
                 # 只是单击且没有拖动，恢复计时器（如果是从 idle 点下去的）
                 elif self.current_action == "idle" and hasattr(self, 'inactivity_timer'):
                     self._reset_inactivity_timer()
+
+    def wheelEvent(self, event):
+        # 鼠标悬停在桌宠上滚轮缩放
+        delta = event.angleDelta().y()
+        if delta == 0:
+            super().wheelEvent(event)
+            return
+
+        step_count = int(delta / 120)
+        if step_count == 0:
+            step_count = 1 if delta > 0 else -1
+
+        old_scale = self.user_scale
+        self.user_scale = self._clamp_user_scale(self.user_scale + step_count * self.scale_step)
+        if self.user_scale != old_scale and self._apply_user_scale_to_current_movie():
+            event.accept()
+            return
+
+        super().wheelEvent(event)
 
     def force_on_top(self):
         """强制将窗口保持在屏幕最顶层"""

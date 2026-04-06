@@ -7,11 +7,15 @@ from PyQt6.QtGui import QPainter, QColor, QPen, QPainterPath
 from .choice_dialog import load_dialog_theme
 
 class BubbleButton(QPushButton):
-    def __init__(self, text, is_back=False, icon_path=None, text_color="white", parent=None):
+    def __init__(self, text, is_back=False, icon_path=None, ui_scale=1.0, parent=None):
         super().__init__(text, parent)
         self.image_mode = False
-        self.text_color = text_color or "white"
-        self.setFixedSize(70, 70)
+        self.ui_scale = max(0.5, min(2.5, float(ui_scale)))
+        self.default_size = max(36, int(70 * self.ui_scale))
+        self.image_size = max(42, int(80 * self.ui_scale))
+        self.text_hover_size = max(self.default_size, int(self.default_size * 1.08))
+        self.image_hover_size = max(self.image_size, int(self.image_size * 1.05))
+        self.setFixedSize(self.default_size, self.default_size)
         
         # 加载描边配置
         theme = load_dialog_theme()
@@ -19,16 +23,17 @@ class BubbleButton(QPushButton):
 
         if icon_path and os.path.exists(icon_path):
             self.image_mode = True
-            self.setFixedSize(80, 80)
+            self.setFixedSize(self.image_size, self.image_size)
             bg_url = icon_path.replace("\\", "/")
-            display_color = "transparent" if self.enable_outline else self.text_color
+            text_color = "transparent" if self.enable_outline else "white"
+            font_px = max(10, int(15 * self.ui_scale))
             self.setStyleSheet(f"""
                 QPushButton {{
                     border-image: url('{bg_url}');
                     border: none;
                     color: {display_color};
                     font-weight: bold;
-                    font-size: 15px;
+                    font-size: {font_px}px;
                 }}
             """)
             return
@@ -44,13 +49,15 @@ class BubbleButton(QPushButton):
             hover_bg = "#e32424"
             pressed_bg = "#a81616"
 
+        radius_px = max(8, self.default_size // 2)
+        border_px = max(2, int(4 * self.ui_scale))
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg_color};
-                color: {self.text_color};
-                border-radius: 35px;
+                color: white;
+                border-radius: {radius_px}px;
                 font-weight: bold;
-                border: 4px solid {border_color};
+                border: {border_px}px solid {border_color};
             }}
             QPushButton:hover {{
                 background-color: {hover_bg};
@@ -61,13 +68,13 @@ class BubbleButton(QPushButton):
         """)
 
     def hitButton(self, pos):
-        # 统一使用默认的圆形判定区，图片模式则在此基础上多加5像素半径
+        # 根据当前按钮尺寸动态判定点击区域，避免缩放后命中范围不准确
         cx = self.width() / 2
         cy = self.height() / 2
         dx = pos.x() - cx
         dy = pos.y() - cy
-        
-        hit_r = 40 if self.image_mode else 35
+
+        hit_r = min(self.width(), self.height()) / 2
         return (dx * dx + dy * dy) <= (hit_r * hit_r)
 
     def set_target_pos(self, x, y, angle):
@@ -81,12 +88,12 @@ class BubbleButton(QPushButton):
         super().enterEvent(event)
         self.raise_()
         if hasattr(self, 'base_x') and hasattr(self, 'base_y') and hasattr(self, 'angle'):
-            shift_dist = 5 if self.image_mode else 10
+            shift_dist = max(2, int((5 if self.image_mode else 10) * self.ui_scale))
             hover_x = self.base_x + shift_dist * math.cos(self.angle)
             hover_y = self.base_y - shift_dist * math.sin(self.angle)
-            
-            target_w = 80 if self.image_mode else 70
-            target_h = 80 if self.image_mode else 70
+
+            target_w = self.image_hover_size if self.image_mode else self.text_hover_size
+            target_h = target_w
 
             if hasattr(self, 'anim') and self.anim.state() == QPropertyAnimation.State.Running:
                 # 初始展开动画还没完成，不要打断
@@ -107,8 +114,8 @@ class BubbleButton(QPushButton):
     def leaveEvent(self, event):
         super().leaveEvent(event)
         if hasattr(self, 'base_x') and hasattr(self, 'base_y'):
-            target_w = 80 if self.image_mode else 70
-            target_h = 80 if self.image_mode else 70
+            target_w = self.image_size if self.image_mode else self.default_size
+            target_h = target_w
 
             if hasattr(self, 'anim') and self.anim.state() == QPropertyAnimation.State.Running:
                 pass
@@ -144,7 +151,7 @@ class BubbleButton(QPushButton):
             
             # 由于之前有 padding-top: 50px，我们把文字依然画到底部中间位置
             # 高度是 80，底部的空间大约是从 45 到 80。
-            padding_top = 45
+            padding_top = max(20, int(45 * self.ui_scale))
             area_height = rect.height() - padding_top
 
             line_height = fm.height()
@@ -158,14 +165,14 @@ class BubbleButton(QPushButton):
                 path.addText(QPointF(x, y), font, line)
             
             pen = QPen(QColor("black"))
-            pen.setWidth(3)
+            pen.setWidth(max(1, int(3 * self.ui_scale)))
             painter.setPen(pen)
             painter.drawPath(path)
             
             painter.fillPath(path, QColor(self.text_color))
 
 class CircularMenuWidget(QWidget):
-    def __init__(self, items, center_pos, on_close_callback=None, parent=None):
+    def __init__(self, items, center_pos, on_close_callback=None, menu_scale=1.0, parent=None):
         """
         items: list of dicts. [{'label': 'name', 'action': callable or sub_items_list}]
         """
@@ -181,6 +188,7 @@ class CircularMenuWidget(QWidget):
         
         self.center_pos = center_pos
         self.on_close_callback = on_close_callback
+        self.menu_scale = max(0.5, min(2.5, float(menu_scale)))
 
         self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
         self.theme = load_dialog_theme()
@@ -217,7 +225,7 @@ class CircularMenuWidget(QWidget):
             btn.deleteLater()
         self.buttons.clear()
         
-        R = 120 if self.use_image_buttons else 120  # 图片模式下离桌宠距离减少10个像素
+        R = max(70, int(120 * self.menu_scale))
         
         # Separate special items from regular ones
         regular_items = []
@@ -265,7 +273,7 @@ class CircularMenuWidget(QWidget):
         else:
             # 智能判断可用的角度范围
             screen_geo = QApplication.primaryScreen().availableGeometry()
-            btn_half = 40 if self.use_image_buttons else 35
+            btn_half = max(18, int((80 if self.use_image_buttons else 70) * self.menu_scale / 2))
             margin = R + btn_half + 10  # 半径 + 按钮半径 + 边距
             
             can_up = (self.center_pos.y() - screen_geo.top()) >= margin
@@ -329,8 +337,8 @@ class CircularMenuWidget(QWidget):
                 item['label'],
                 is_back=is_special_btn,
                 icon_path=icon_path,
-                text_color=item.get('text_color', 'white'),
-                parent=self,
+                ui_scale=self.menu_scale,
+                parent=self
             )
             
             # Target position
