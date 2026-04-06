@@ -2,14 +2,20 @@
 # 1) actions: 每个 action 对应的 gif 文件名
 # 2) loops:   每个 action 是否循环播放（true/false）
 # 3) base_dir: gif 所在目录（相对项目根目录）
+# 4) fall_mode: 下落模式（smooth=缓降飘落，direct=快速直落，none=不下坠）
+# 5) smooth_fall: 兼容旧配置，仅在未设置 fall_mode 时生效
 
 base_dir: resource/wisdel/皮肤素材/可用素材
+fall_mode: smooth
+smooth_fall: true
 
 actions:
   idle: relax.gif
   interact: interact.gif
   special: special0.gif, special1.gif, jump.gif
   move: move.gif
+  sweat: sweat.gif
+  fly: fly.gif
   sit: sit.gif
   sleep: sleep.gif
   screenshot: sit.gif
@@ -22,6 +28,8 @@ loops:
   interact: false
   special: false
   move: true
+  sweat: true
+  fly: true
   sit: true
   sleep: true
   screenshot: false

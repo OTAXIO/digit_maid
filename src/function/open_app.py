@@ -7,6 +7,24 @@ _APP_PATH_CACHE = {
     "data": {},
 }
 
+_WINDOWS_CONSOLE_APPS = {
+    "cmd.exe",
+    "powershell.exe",
+    "pwsh.exe",
+}
+
+
+def _launch_windows_app(target):
+    """Launch app safely on Windows, keeping console apps visible."""
+    exe_name = os.path.basename(target).lower()
+
+    # 控制台程序需要新建控制台窗口，不能用 DETACHED_PROCESS。
+    if exe_name in _WINDOWS_CONSOLE_APPS:
+        subprocess.Popen([target], creationflags=subprocess.CREATE_NEW_CONSOLE, shell=False)
+        return
+
+    subprocess.Popen([target], creationflags=subprocess.DETACHED_PROCESS, shell=False)
+
 def load_app_paths():
     """解析简单的 YAML 文件读取应用路径配置"""
     config_path = os.path.join(os.path.dirname(__file__), "apps.yaml")
@@ -62,22 +80,15 @@ def open_application(app_name):
                         # 对于不需要完整路径的系统命令（如 calc.exe等），直接尝试启动
                         if os.path.exists(path) or "\\" not in path:
                             try:
-                                # Start detached process independently of python terminal lifecycle to prevent crashes
-                                if platform.system() == "Windows":
-                                    subprocess.Popen(path, creationflags=subprocess.DETACHED_PROCESS, shell=False)
-                                else:
-                                    subprocess.Popen(path, shell=False)
-                                return f"已打开{keyword}"
+                                _launch_windows_app(path)
+                                return f"已启动{keyword}"
                             except FileNotFoundError:
                                 continue
                     return f"未找到{keyword}，请确认 apps.yaml 中的安装位置"
             
             # 如果配置文件中没找到，尝试直接运行命令
             try:
-                if platform.system() == "Windows":
-                    subprocess.Popen(app_name, creationflags=subprocess.DETACHED_PROCESS, shell=False)
-                else:
-                    subprocess.Popen(app_name)
+                _launch_windows_app(app_name)
                 return f"尝试启动 {app_name}"
             except FileNotFoundError:
                 return f"找不到应用: {app_name}"

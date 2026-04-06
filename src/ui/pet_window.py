@@ -1,6 +1,7 @@
 import os
 import time
 import random
+import math
 
 from PyQt6.QtWidgets import QWidget, QApplication, QLabel, QVBoxLayout
 from PyQt6.QtCore import Qt, QPoint, QTimer, QSize
@@ -54,11 +55,29 @@ class PetWindow(QWidget):
         self.inactivity_timer = QTimer(self)
         self.inactivity_timer.setSingleShot(True)
         self.inactivity_timer.timeout.connect(self._on_inactivity_timeout)
+        self._inactivity_deadline = None
 
         # 闲置散步计时器
         self.wander_timer = QTimer(self)
         self.wander_timer.timeout.connect(self._on_wander_tick)
         self.wander_speed = 0
+
+        # 拖拽松手后若离开底边，缓慢降落到底边
+        self._is_falling = False
+        self._fall_x = 0.0
+        self._fall_y = 0.0
+        self._fall_start_y = 0.0
+        self._fall_distance = 1.0
+        self._fall_tick = 0
+        self._fall_vertical_speed = 1.0
+        self._fall_vertical_accel = 0.03
+        self._fall_vertical_max_speed = 2.6
+        self._fall_sway_amplitude = 16.0
+        self._fall_sway_speed = 0.22
+        self._fall_sway_phase = 0.0
+        self._fall_drift_speed = 0.0
+        self._fall_timer = QTimer(self)
+        self._fall_timer.timeout.connect(self._on_fall_tick)
 
         # 定时强制置顶计时器，避免被网页全屏等其他抢占焦点的程序压在下方
         self.topmost_timer = QTimer(self)
@@ -100,6 +119,8 @@ class PetWindow(QWidget):
 
             cfg = {
                 "base_dir": "resource/wisdel/皮肤素材/可用素材",
+                "fall_mode": "smooth",
+                "smooth_fall": True,
                 "actions": {},
                 "loops": {},
                 # 向后兼容旧结构 animations: {action: {file, loop}}
@@ -115,6 +136,17 @@ class PetWindow(QWidget):
 
                 if raw.startswith("base_dir:"):
                     cfg["base_dir"] = raw.split(":", 1)[1].strip()
+                    continue
+
+                if raw.startswith("fall_mode:"):
+                    mode = raw.split(":", 1)[1].strip().lower()
+                    if mode in ("smooth", "direct", "none"):
+                        cfg["fall_mode"] = mode
+                    continue
+
+                if raw.startswith("smooth_fall:"):
+                    value = raw.split(":", 1)[1].strip().lower()
+                    cfg["smooth_fall"] = value in ("true", "1", "yes", "on")
                     continue
 
                 if line in ("actions:", "loops:", "animations:"):
@@ -155,10 +187,12 @@ class PetWindow(QWidget):
             return {}
 
     def play_action(self, action_name, force_loop=None, is_flipped=None):
+        # 空中不进入 idle，避免在未落地时提前触发待机计时
+        if action_name == "idle" and self._get_fall_mode() != "none" and not self._is_at_bottom_boundary(tolerance=0):
+            return False
+
         # 只要切换动作，就先暂停待机计时；如果是回到 idle，再重新开始计时
-        if hasattr(self, 'inactivity_timer'):
-            self.inactivity_timer.stop()
-            self.inactivity_stage = 0
+        self._stop_inactivity_timer(reset_stage=True)
 
         base_dir_rel = self.anim_cfg.get("base_dir", "resource/wisdel/皮肤素材/可用素材")
         actions = self.anim_cfg.get("actions", {})
@@ -330,6 +364,21 @@ class PetWindow(QWidget):
                 self._on_action_finished()
 
     def _on_action_finished(self):
+        # 菜单打开期间锁定为 interact，避免动作结束后误回 idle
+        if getattr(self, "menu_interact_mode", False):
+            self._stop_inactivity_timer(reset_stage=True)
+            if self.current_action != "interact":
+                self.play_action("interact", force_loop=True)
+            elif self.current_movie is not None:
+                self.current_movie.start()
+            return
+
+        # 下落阶段若动作结束，保持 fly 直到真正落地
+        if self._is_falling and not self._is_at_bottom_boundary(tolerance=0):
+            if self.current_action != "fly":
+                self.play_action("fly", force_loop=True)
+            return
+
         if self.current_loop:
             # 循环动作：重头继续播放
             if self.current_movie is not None:
@@ -373,9 +422,36 @@ class PetWindow(QWidget):
 
     def _reset_inactivity_timer(self):
         self.inactivity_stage = 0
-        self.inactivity_timer.start(15000)#15秒以后进入水平move
+        self._start_inactivity_timer(15000) # 15秒以后进入水平move
+
+    def _start_inactivity_timer(self, duration_ms):
+        self._inactivity_deadline = time.monotonic() + (duration_ms / 1000.0)
+        self.inactivity_timer.start(duration_ms)
+
+    def _stop_inactivity_timer(self, reset_stage=False):
+        self.inactivity_timer.stop()
+        self._inactivity_deadline = None
+        if reset_stage:
+            self.inactivity_stage = 0
 
     def _on_inactivity_timeout(self):
+        # 防止计时器在临界点被 stop/restart 后仍触发陈旧 timeout，误打断当前动作
+        deadline = self._inactivity_deadline
+        if deadline is None:
+            return
+
+        if time.monotonic() + 0.05 < deadline:
+            return
+
+        self._inactivity_deadline = None
+
+        # 菜单打开期间不进入 idle/sit/sleep 状态机，保持 interact
+        if getattr(self, "menu_interact_mode", False):
+            self._stop_inactivity_timer(reset_stage=True)
+            if self.current_action != "interact":
+                self.play_action("interact", force_loop=True)
+            return
+
         if self.inactivity_stage == 0:
             # 15s无互动：播放 move 动作
             # 随机决定初次散步方向：-1为向左走，1为向右走
@@ -386,7 +462,7 @@ class PetWindow(QWidget):
             # 向左走(direction < 0)时进行翻转
             self.play_action("move", is_flipped=(direction < 0))
             self.inactivity_stage = 1
-            self.inactivity_timer.start(15000)#再15秒以后进入坐姿
+            self._start_inactivity_timer(15000) # 再15秒以后进入坐姿
             self.wander_timer.start(50)       # 开启散步定时器 (50ms)
         elif self.inactivity_stage == 1:
             # 停止散步
@@ -395,13 +471,146 @@ class PetWindow(QWidget):
             self.move(self.x(), self.y() + 30)
             self.play_action("sit")
             self.inactivity_stage = 2
-            self.inactivity_timer.start(15000)#再15秒以后进入躺姿
+            self._start_inactivity_timer(15000) # 再15秒以后进入躺姿
         elif self.inactivity_stage == 2:
             # 播放 sleep
             self.move(self.x() - 10, self.y() + 20)
             self.play_action("sleep")
             self.inactivity_stage = 0
-            self.inactivity_timer.start(45000)
+            self._start_inactivity_timer(45000)
+
+    def _bottom_y_limit(self):
+        screen_geo = self.screen().availableGeometry()
+        return screen_geo.bottom() - self.height() + 10
+
+    def _is_at_bottom_boundary(self, y=None, tolerance=1):
+        if y is None:
+            y = self.y()
+        return y >= self._bottom_y_limit() - tolerance
+
+    def _get_fall_mode(self):
+        mode = str(self.anim_cfg.get("fall_mode", "")).strip().lower()
+        if mode in ("smooth", "direct", "none"):
+            return mode
+        # 兼容旧配置 smooth_fall
+        return "smooth" if self.anim_cfg.get("smooth_fall", True) else "direct"
+
+    def _allow_air_interaction(self):
+        return self._get_fall_mode() == "none"
+
+    def _stop_fall(self):
+        if self._fall_timer.isActive():
+            self._fall_timer.stop()
+        self._is_falling = False
+
+    def _start_fall_to_bottom(self):
+        mode = self._get_fall_mode()
+
+        if mode == "none":
+            # 不下坠模式：空中直接恢复 idle，并正常记录 idle 时间
+            self._stop_fall()
+            if self.current_action != "idle":
+                self.play_action("idle")
+            elif hasattr(self, 'inactivity_timer'):
+                self._reset_inactivity_timer()
+            return
+
+        target_y = self._bottom_y_limit()
+        if self.y() >= target_y:
+            self.move(self.x(), target_y)
+            self._stop_fall()
+            if self.current_action != "idle":
+                self.play_action("idle")
+            return
+
+        self._stop_fall()
+        self._is_falling = True
+        # 降落阶段不累计 idle 计时，落地后再回 idle 重置计时
+        self._stop_inactivity_timer(reset_stage=True)
+        if self.current_action != "fly":
+            self.play_action("fly", force_loop=True)
+
+        # 统一初始化下落坐标，具体下落模式由 smooth_fall 配置决定
+        self._fall_x = float(self.x())
+        self._fall_y = float(self.y())
+        self._fall_start_y = self._fall_y
+        self._fall_distance = max(1.0, float(target_y) - self._fall_start_y)
+        self._fall_tick = 0
+
+        if mode == "direct":
+            # 非缓降：直落，不做横向摆动
+            self._fall_vertical_speed = random.uniform(6.0, 9.0)
+            self._fall_timer.start(16)
+            return
+
+        # 缓降：树叶式下落参数（左右摆动 + 轻微漂移 + 速度渐变）
+        self._fall_vertical_speed = random.uniform(0.65, 1.15)
+        self._fall_vertical_accel = random.uniform(0.02, 0.045)
+        self._fall_vertical_max_speed = random.uniform(2.2, 3.0)
+        self._fall_sway_amplitude = random.uniform(30.0, 50.0)
+        self._fall_sway_speed = random.uniform(0.08, 0.14)
+        self._fall_sway_phase = random.uniform(0.0, math.tau)
+        self._fall_drift_speed = random.uniform(-0.12, 0.12)
+        self._fall_timer.start(24)
+
+    def _on_fall_tick(self):
+        mode = self._get_fall_mode()
+
+        if mode == "none":
+            self._stop_fall()
+            if self.current_action != "idle":
+                self.play_action("idle")
+            return
+
+        target_y = self._bottom_y_limit()
+        if self._fall_y >= target_y:
+            self.move(self.x(), int(round(target_y)))
+            if self._is_at_bottom_boundary(tolerance=0):
+                self._stop_fall()
+                self.play_action("idle")
+            return
+
+        if mode == "direct":
+            # 非缓降：快速直落，落地后进入 idle
+            self._fall_y = min(float(target_y), self._fall_y + self._fall_vertical_speed)
+            self.move(self.x(), int(round(self._fall_y)))
+            if self._fall_y >= target_y and self._is_at_bottom_boundary(tolerance=0):
+                self._stop_fall()
+                self.play_action("idle")
+            return
+
+        self._fall_tick += 1
+        self._fall_vertical_speed = min(
+            self._fall_vertical_max_speed,
+            self._fall_vertical_speed + self._fall_vertical_accel,
+        )
+        self._fall_y = min(float(target_y), self._fall_y + self._fall_vertical_speed)
+
+        progress = (self._fall_y - self._fall_start_y) / self._fall_distance
+        progress = max(0.0, min(1.0, progress))
+        damping = max(0.35, 1.0 - progress * 0.60)
+
+        sway_main = math.sin(self._fall_sway_phase + self._fall_tick * self._fall_sway_speed)
+        sway_flutter = math.sin(self._fall_sway_phase * 1.15 + self._fall_tick * (self._fall_sway_speed * 0.85))
+        sway_x = (sway_main * self._fall_sway_amplitude + sway_flutter * 1.0) * damping
+
+        self._fall_x += self._fall_drift_speed
+
+        screen_geo = self.screen().availableGeometry()
+        min_x = float(screen_geo.left())
+        max_x = float(screen_geo.right() - self.width())
+
+        target_x = self._fall_x + sway_x
+        new_x = float(self.x()) * 0.70 + target_x * 0.30
+        if new_x <= min_x:
+            new_x = min_x
+            self._fall_drift_speed = abs(self._fall_drift_speed) * 0.7 + 0.03
+        elif new_x >= max_x:
+            new_x = max_x
+            self._fall_drift_speed = -abs(self._fall_drift_speed) * 0.7 - 0.03
+
+        self._fall_x = min(max(self._fall_x, min_x), max_x)
+        self.move(int(round(new_x)), int(round(self._fall_y)))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -412,12 +621,17 @@ class PetWindow(QWidget):
 
             self.offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             self._is_dragging = False
+            if self._is_falling:
+                self._stop_fall()
                 
             # 按下的瞬间暂停计时防挂机
             if self.current_action == "idle":
-                self.inactivity_timer.stop()
+                self._stop_inactivity_timer()
               
         elif event.button() == Qt.MouseButton.RightButton:
+            if not self._is_at_bottom_boundary() and not self._allow_air_interaction():
+                return
+
             # 右击也可以关闭当前弹出的提示气泡
             self.dialogue_system.hide_dialogue()
             
@@ -434,6 +648,9 @@ class PetWindow(QWidget):
 
     def mouseDoubleClickEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
+            if not self._is_at_bottom_boundary() and not self._allow_air_interaction():
+                return
+
             # 防止双击过快导致资源不停创建销毁引发闪退，增加0.5秒冷却
             current_time = time.time()
             if hasattr(self, '_last_double_click_time') and current_time - self._last_double_click_time < 0.5:
@@ -473,14 +690,16 @@ class PetWindow(QWidget):
                 # 判断水平移动方向，如果向左移动则翻转
                 is_moving_left = new_x < self.pos().x()
                 is_moving_right = new_x > self.pos().x()
+                at_bottom = self._is_at_bottom_boundary(y=new_y)
+                desired_action = "move" if at_bottom else "sweat"
                 
-                if self.current_action != "move":
-                    self.play_action("move", is_flipped=is_moving_left)
+                if self.current_action != desired_action:
+                    self.play_action(desired_action, is_flipped=is_moving_left)
                 else:
                     if is_moving_left and not getattr(self, "is_flipped", False):
-                        self.play_action("move", is_flipped=True)
+                        self.play_action(desired_action, is_flipped=True)
                     elif is_moving_right and getattr(self, "is_flipped", False):
-                        self.play_action("move", is_flipped=False)
+                        self.play_action(desired_action, is_flipped=False)
                 
                 self.move(new_x, new_y)
 
@@ -492,12 +711,20 @@ class PetWindow(QWidget):
                 return
 
             if getattr(self, '_is_dragging', False):
-                # 仅在拖拽结束时回到 idle
-                if self.current_action == "move":
-                    self.play_action("idle")
+                self._is_dragging = False
+                if self._is_at_bottom_boundary():
+                    # 到达底边后恢复 idle
+                    if self.current_action in ("move", "sweat", "fly"):
+                        self.play_action("idle")
+                else:
+                    # 离开底边松手：使用 fly 缓慢降落
+                    self._start_fall_to_bottom()
             else:
+                # 单击松手时如果不在底边，也执行缓慢降落
+                if not self._is_at_bottom_boundary():
+                    self._start_fall_to_bottom()
                 # 只是单击且没有拖动，恢复计时器（如果是从 idle 点下去的）
-                if self.current_action == "idle" and hasattr(self, 'inactivity_timer'):
+                elif self.current_action == "idle" and hasattr(self, 'inactivity_timer'):
                     self._reset_inactivity_timer()
 
     def wheelEvent(self, event):

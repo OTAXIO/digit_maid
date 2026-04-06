@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import QMenu, QApplication
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtCore import QTimer, QObject, QEvent
 import os
 from src.function import screen_shot, open_app, startup
@@ -9,9 +9,70 @@ from src.input.choice_dialog import load_dialog_theme
 from src.input.circular_menu import CircularMenuWidget
 
 class PetActions:
+    FALL_MODE_LABELS = {
+        "smooth": "缓降飘落",
+        "direct": "快速直落",
+        "none": "不下坠",
+    }
+
     def __init__(self, parent_widget, dialogue_system):
         self.parent = parent_widget
         self.dialogue = dialogue_system
+
+    def _get_pet_animation_cfg_path(self):
+        return os.path.join(os.path.dirname(__file__), "pet_animations.yaml")
+
+    def _get_current_fall_mode(self):
+        anim_cfg = getattr(self.parent, "anim_cfg", {}) or {}
+        mode = str(anim_cfg.get("fall_mode", "")).strip().lower()
+        if mode in self.FALL_MODE_LABELS:
+            return mode
+        return "smooth" if anim_cfg.get("smooth_fall", True) else "direct"
+
+    def _set_fall_mode(self, mode):
+        mode = str(mode).strip().lower()
+        if mode not in self.FALL_MODE_LABELS:
+            return False
+
+        cfg_path = self._get_pet_animation_cfg_path()
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            replaced = False
+            for idx, line in enumerate(lines):
+                if line.strip().startswith("fall_mode:"):
+                    lines[idx] = f"fall_mode: {mode}\n"
+                    replaced = True
+                    break
+
+            if not replaced:
+                insert_at = 0
+                for idx, line in enumerate(lines):
+                    if line.strip().startswith("base_dir:"):
+                        insert_at = idx + 1
+                        break
+                lines.insert(insert_at, f"fall_mode: {mode}\n")
+
+            with open(cfg_path, "w", encoding="utf-8", newline="") as f:
+                f.writelines(lines)
+        except Exception as e:
+            msg = f"设置下落模式失败: {e}"
+            print(msg)
+            self.dialogue.show_message("下落模式", msg)
+            return False
+
+        if hasattr(self.parent, "anim_cfg") and isinstance(self.parent.anim_cfg, dict):
+            self.parent.anim_cfg["fall_mode"] = mode
+            self.parent.anim_cfg["smooth_fall"] = (mode == "smooth")
+
+        if mode == "none" and getattr(self.parent, "_is_falling", False):
+            if hasattr(self.parent, "_stop_fall"):
+                self.parent._stop_fall()
+            self.parent.play_action("idle")
+
+        self.dialogue.show_message("下落模式", f"已切换为: {self.FALL_MODE_LABELS[mode]}")
+        return True
 
     def show_context_menu(self, global_pos):
         # 拦截：如果气泡菜单已经存在并且开着，重复右击则关闭它（相当于开关切换）
@@ -103,11 +164,26 @@ class PetActions:
         action_screenshot.triggered.connect(self.do_screenshot)
         menu.addAction(action_screenshot)
 
+        settings_menu = menu.addMenu("设置")
+
         action_startup = QAction('开机自启动', self.parent)
         action_startup.setCheckable(True)
         action_startup.setChecked(startup.is_startup_enabled())
         action_startup.triggered.connect(lambda checked: self.toggle_startup(checked))
-        menu.addAction(action_startup)
+        settings_menu.addAction(action_startup)
+
+        current_mode = self._get_current_fall_mode()
+        current_mode_label = self.FALL_MODE_LABELS.get(current_mode, "缓降飘落")
+        fall_mode_menu = settings_menu.addMenu(f"下落模式 ({current_mode_label})")
+        fall_mode_group = QActionGroup(fall_mode_menu)
+        fall_mode_group.setExclusive(True)
+        for mode_key, mode_label in self.FALL_MODE_LABELS.items():
+            mode_action = QAction(mode_label, self.parent)
+            mode_action.setCheckable(True)
+            mode_action.setChecked(mode_key == current_mode)
+            mode_action.triggered.connect(lambda checked, m=mode_key: checked and self._set_fall_mode(m))
+            fall_mode_group.addAction(mode_action)
+            fall_mode_menu.addAction(mode_action)
         
         action_quit = QAction('退出', self.parent)
         action_quit.triggered.connect(self.trigger_quit)
@@ -144,7 +220,7 @@ class PetActions:
         # 构造“打开软件”子菜单的数据
         app_sub_items = [
             {'label': app, 'action': lambda a=app: self.do_open_app(a)} 
-            for app in apps
+            for app in apps if app!="v2rayN"
         ]
 
         screenshot_sub_items = [
@@ -153,8 +229,21 @@ class PetActions:
             {'label': '不保存', 'action': lambda: self.do_circular_screenshot("none")}
         ]
 
+        current_mode = self._get_current_fall_mode()
+        fall_mode_sub_items = [
+            {
+                'label': label,
+                'text_color': '#c41c1c' if mode == current_mode else 'white',
+                'action': lambda m=mode: self._set_fall_mode(m)
+            }
+            for mode, label in self.FALL_MODE_LABELS.items()
+        ]
+
         # 构造顶层选项
-        setting_label = [{'label': '关闭自启动' if startup.is_startup_enabled() else '开启自启动','action': self.toggle_startup}]
+        setting_label = [
+            {'label': '下落模式', 'action': fall_mode_sub_items},
+            {'label': '关闭自启动' if startup.is_startup_enabled() else '开启自启动', 'action': self.toggle_startup},
+        ]
         top_items = [
             {'label': 'APP', 'action': app_sub_items},
             {'label': '截图', 'action': screenshot_sub_items},
@@ -280,11 +369,18 @@ class PetActions:
             QApplication.instance().quit()
 
     def do_open_app(self, app_name):
-        self.parent.play_action("open_app")
-        print(f"正在打开 {app_name}...")
-        result = open_app.open_application(app_name)
-        print(result)
-        self.dialogue.show_message("打开软件", result)
+        if app_name=="v2rayN":
+            self.parent.play_action("open_app")
+            print(f"正在启动 {app_name}...")
+            result = open_app.open_application(app_name)
+            print(result)
+            self.dialogue.show_message("启动VPN", result)
+        else:
+            self.parent.play_action("open_app")
+            print(f"正在启动 {app_name}...")
+            result = open_app.open_application(app_name)
+            print(result)
+            self.dialogue.show_message("打开软件", result)
 
     def toggle_startup(self, enabled=None):
         if enabled is None:

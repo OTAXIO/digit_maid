@@ -31,7 +31,7 @@ class BubbleButton(QPushButton):
                 QPushButton {{
                     border-image: url('{bg_url}');
                     border: none;
-                    color: {text_color};
+                    color: {display_color};
                     font-weight: bold;
                     font-size: {font_px}px;
                 }}
@@ -145,24 +145,31 @@ class BubbleButton(QPushButton):
             
             path = QPainterPath()
             fm = painter.fontMetrics()
-            text_rect = fm.boundingRect(text)
+            lines = text.splitlines() if text else [""]
+            if not lines:
+                lines = [""]
             
             # 由于之前有 padding-top: 50px，我们把文字依然画到底部中间位置
             # 高度是 80，底部的空间大约是从 45 到 80。
             padding_top = max(20, int(45 * self.ui_scale))
             area_height = rect.height() - padding_top
-            
-            x = (rect.width() - text_rect.width()) / 2.0
-            y = padding_top + (area_height + fm.ascent() - fm.descent()) / 2.0
-            
-            path.addText(QPointF(x, y), font, text)
+
+            line_height = fm.height()
+            total_height = line_height * len(lines)
+            start_y = padding_top + (area_height - total_height) / 2.0 + fm.ascent()
+
+            for idx, line in enumerate(lines):
+                line_width = fm.horizontalAdvance(line)
+                x = (rect.width() - line_width) / 2.0
+                y = start_y + idx * line_height
+                path.addText(QPointF(x, y), font, line)
             
             pen = QPen(QColor("black"))
             pen.setWidth(max(1, int(3 * self.ui_scale)))
             painter.setPen(pen)
             painter.drawPath(path)
             
-            painter.fillPath(path, QColor("white"))
+            painter.fillPath(path, QColor(self.text_color))
 
 class CircularMenuWidget(QWidget):
     def __init__(self, items, center_pos, on_close_callback=None, menu_scale=1.0, parent=None):
