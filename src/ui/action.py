@@ -395,7 +395,7 @@ class MaidActions:
         apps = list(load_app_paths().keys())
         
         # 构造“打开软件”子菜单的数据
-        game_apps = {"鹰角启动", "二重螺旋"}
+        game_apps = {"Steam","鹰角启动", "二重螺旋",}
         game_sub_items = [
             {'label': app, 'action': lambda a=app: self.do_open_app(a)}
             for app in apps if app in game_apps

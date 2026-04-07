@@ -18,5 +18,10 @@ app_paths:
     - C:\Program Files\Hypergryph Launcher\Launcher.exe
   二重螺旋:
     - E:\GAME\Duet Night Abyss\EMLauncher.exe
+  Steam:
+    - C:\Program Files (x86)\Steam\steam.exe
+    - C:\Program Files\Steam\steam.exe
+    - E:\steam\steam.exe
+
   v2rayN:
     - D:\others\TOOLS\V2\v2rayN\v2rayN.exe
