@@ -20,6 +20,3 @@ app_paths:
     - C:\Program Files (x86)\Steam\steam.exe
     - C:\Program Files\Steam\steam.exe
     - E:\steam\steam.exe
-
-  v2rayN:
-    - D:\others\TOOLS\V2\v2rayN\v2rayN.exe
