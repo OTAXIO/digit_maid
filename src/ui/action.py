@@ -1,6 +1,6 @@
 ﻿from PyQt6.QtWidgets import QMenu, QApplication
 from PyQt6.QtGui import QAction, QActionGroup
-from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint
+from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint, QSettings
 import os
 from src.function import screen_shot, open_app, startup
 from src.function.open_app import load_app_paths
@@ -185,6 +185,49 @@ class MaidActions:
             mapped = scale
         return max(0.4, mapped)
 
+    def _is_ai_chat_enabled(self):
+        if hasattr(self.parent, "is_ai_chat_enabled"):
+            try:
+                return bool(self.parent.is_ai_chat_enabled())
+            except Exception:
+                pass
+
+        settings = QSettings("DigitMaid", "DigitMaid")
+        value = settings.value("ai/enabled", True)
+        return self._to_bool(value, True)
+
+    def _set_ai_chat_enabled(self, enabled):
+        enabled = bool(enabled)
+        if hasattr(self.parent, "set_ai_chat_enabled"):
+            try:
+                self.parent.set_ai_chat_enabled(enabled)
+            except Exception:
+                pass
+        else:
+            settings = QSettings("DigitMaid", "DigitMaid")
+            settings.setValue("ai/enabled", enabled)
+            settings.sync()
+
+        tip = "已开启聊天功能" if enabled else "已关闭聊天功能"
+        print(tip)
+        self.dialogue.show_message("聊天设置", tip)
+        return enabled
+
+    @staticmethod
+    def _to_bool(value, default):
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            low = value.strip().lower()
+            if low in ("1", "true", "yes", "on"):
+                return True
+            if low in ("0", "false", "no", "off"):
+                return False
+        try:
+            return bool(int(value))
+        except (TypeError, ValueError):
+            return bool(default)
+
     def show_context_menu(self, global_pos):
         # 拦截：如果气泡菜单已经存在并且开着，重复右击则关闭它（相当于开关切换）
         if hasattr(self, "circular_menu") and self.circular_menu is not None:
@@ -337,6 +380,25 @@ class MaidActions:
             mode_action.triggered.connect(lambda checked, m=mode_key: checked and self._set_fall_mode(m))
             fall_mode_group.addAction(mode_action)
             fall_mode_menu.addAction(mode_action)
+
+        chat_menu = settings_menu.addMenu("聊天")
+        chat_enabled = self._is_ai_chat_enabled()
+        chat_group = QActionGroup(chat_menu)
+        chat_group.setExclusive(True)
+
+        action_chat_on = QAction("开启", self.parent)
+        action_chat_on.setCheckable(True)
+        action_chat_on.setChecked(chat_enabled)
+        action_chat_on.triggered.connect(lambda checked: checked and self._set_ai_chat_enabled(True))
+        chat_group.addAction(action_chat_on)
+        chat_menu.addAction(action_chat_on)
+
+        action_chat_off = QAction("关闭", self.parent)
+        action_chat_off.setCheckable(True)
+        action_chat_off.setChecked(not chat_enabled)
+        action_chat_off.triggered.connect(lambda checked: checked and self._set_ai_chat_enabled(False))
+        chat_group.addAction(action_chat_off)
+        chat_menu.addAction(action_chat_off)
         
         action_quit = QAction('退出', self.parent)
         action_quit.triggered.connect(self.trigger_quit)
@@ -447,10 +509,25 @@ class MaidActions:
             },
         ]
 
+        chat_enabled = self._is_ai_chat_enabled()
+        chat_sub_items = [
+            {
+                'label': '开启',
+                'text_color': "#e32e2e" if chat_enabled else 'white',
+                'action': lambda: self._set_ai_chat_enabled(True)
+            },
+            {
+                'label': '关闭',
+                'text_color': "#e32e2e" if not chat_enabled else 'white',
+                'action': lambda: self._set_ai_chat_enabled(False)
+            },
+        ]
+
         # 构造顶层选项
         setting_label = [
             {'label': '大小调整', 'action': scale_sub_items},
             {'label': '下落模式', 'action': fall_mode_sub_items},
+            {'label': '聊天', 'action': chat_sub_items},
             {'label': '关闭自启动' if startup.is_startup_enabled() else '开启自启动', 'action': self.toggle_startup},
         ]
         top_items = [

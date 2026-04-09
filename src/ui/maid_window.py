@@ -4,7 +4,7 @@ import random
 import math
 
 from PyQt6.QtWidgets import QWidget, QApplication, QLabel, QVBoxLayout
-from PyQt6.QtCore import Qt, QPoint, QTimer, QSize, QSettings
+from PyQt6.QtCore import Qt, QPoint, QTimer, QSize, QSettings, QObject, QThread, pyqtSignal
 from PyQt6.QtGui import QMovie, QTransform
 import sys
 
@@ -12,7 +12,14 @@ import sys
 try:
     from .dialogue import DialogueSystem
     from .action import MaidActions
+    from .ai_panel import AIChatPanel
     from .menu_controller import OptionMenuController
+    from ..ai.config_service import AIConfig, AISettingsService
+    from ..ai.models import ChatMessage, PanelState
+    from ..ai.openai_client import AIClientError, OpenAICompatibleClient
+    from ..ai.response_formatter import format_response_content
+    from ..input.global_hotkey_listener import GlobalInputBridge
+    from ..input.text_input import get_ai_config_input
 except ImportError:
     current_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(current_dir, "../../"))
@@ -20,7 +27,37 @@ except ImportError:
         sys.path.append(project_root)
     from src.ui.dialogue import DialogueSystem
     from src.ui.action import MaidActions
+    from src.ui.ai_panel import AIChatPanel
     from src.ui.menu_controller import OptionMenuController
+    from src.ai.config_service import AIConfig, AISettingsService
+    from src.ai.models import ChatMessage, PanelState
+    from src.ai.openai_client import AIClientError, OpenAICompatibleClient
+    from src.ai.response_formatter import format_response_content
+    from src.input.global_hotkey_listener import GlobalInputBridge
+    from src.input.text_input import get_ai_config_input
+
+
+class AIRequestWorker(QObject):
+    succeeded = pyqtSignal(str)
+    failed = pyqtSignal(str)
+    finished = pyqtSignal()
+
+    def __init__(self, config: AIConfig, messages: list[dict[str, str]]):
+        super().__init__()
+        self.config = config
+        self.messages = messages
+
+    def run(self):
+        try:
+            client = OpenAICompatibleClient(self.config)
+            reply = client.chat(self.messages)
+            self.succeeded.emit(reply)
+        except AIClientError as exc:
+            self.failed.emit(str(exc))
+        except Exception as exc:
+            self.failed.emit(f"请求失败：{exc}")
+        finally:
+            self.finished.emit()
 
 class MaidWindow(QWidget):
     def __init__(self):
@@ -44,6 +81,26 @@ class MaidWindow(QWidget):
         # 初始化各个子系统
         self.dialogue_system = DialogueSystem(self)
         self.maid_actions = MaidActions(self, self.dialogue_system)
+        self._suppress_dialogue_bubble = False
+
+        # AI 对话子系统
+        self.ai_settings_service = AISettingsService()
+        self.ai_panel = AIChatPanel(anchor_widget=self)
+        self.ai_panel.submit_requested.connect(self._on_ai_user_submit)
+        self.ai_panel.edit_config_requested.connect(self._on_ai_edit_config_requested)
+        self.ai_panel.visibility_changed.connect(self._on_ai_panel_visibility_changed)
+        self.ai_panel.set_model_name(self.ai_settings_service.load_config().model)
+        self.ai_messages = []
+        self._ai_request_thread = None
+        self._ai_request_worker = None
+
+        # 全局输入监听（空格长按 / 中键）
+        self.global_input_bridge = GlobalInputBridge(hold_ms=1000, parent=self)
+        self.global_input_bridge.toggle_requested.connect(self._on_global_toggle_requested)
+        self.global_input_bridge.listener_error.connect(self._on_global_listener_error)
+        self._global_listener_ready = self.global_input_bridge.start()
+        if not self._global_listener_ready:
+            print("全局输入监听未启动，AI 面板将仅支持应用内触发。")
 
         # GIF 显示层
         self.maid_label = QLabel(self)
@@ -144,6 +201,220 @@ class MaidWindow(QWidget):
         if controller is None:
             return True
         return controller.allows(operation_name)
+
+    def is_ai_panel_visible(self):
+        return bool(getattr(self, "ai_panel", None) and self.ai_panel.isVisible())
+
+    def _on_ai_panel_visibility_changed(self, is_visible):
+        self._suppress_dialogue_bubble = bool(is_visible)
+        if is_visible:
+            self.dialogue_system.hide_dialogue()
+
+    def _on_global_listener_error(self, message):
+        print(message)
+
+    def _on_global_toggle_requested(self, source):
+        self.toggle_ai_panel(trigger_source=source)
+
+    def is_ai_chat_enabled(self):
+        service = getattr(self, "ai_settings_service", None)
+        if service is None:
+            return True
+        return bool(service.is_chat_enabled())
+
+    def set_ai_chat_enabled(self, enabled):
+        enabled = bool(enabled)
+        service = getattr(self, "ai_settings_service", None)
+        if service is not None:
+            service.set_chat_enabled(enabled)
+
+        if not enabled and self.is_ai_panel_visible():
+            self.ai_panel.hide_panel()
+        return enabled
+
+    def toggle_ai_panel(self, trigger_source="manual"):
+        if self.is_ai_panel_visible():
+            self.ai_panel.hide_panel()
+            return True
+
+        if not self.is_ai_chat_enabled():
+            self.dialogue_system.show_message("AI 对话", "聊天功能已关闭，请在 设置 > 聊天 中开启。")
+            return False
+
+        if self._custom_scale_adjusting:
+            self.dialogue_system.show_message("AI 对话", "自定义大小模式下暂不可打开 AI 面板。")
+            return False
+
+        if self._is_menu_ui_active():
+            self.dialogue_system.show_message("AI 对话", "菜单打开时请先关闭菜单，再打开 AI 面板。")
+            return False
+
+        config = self._ensure_ai_config_ready()
+        if config is None:
+            return False
+
+        self.ai_panel.set_model_name(config.model)
+        self.dialogue_system.hide_dialogue()
+        self.ai_panel.show_panel()
+        source_text = "空格长按" if trigger_source == "space_hold" else "中键点击" if trigger_source == "middle_click" else ""
+        hint = f"已通过{source_text}打开 AI 面板" if source_text else ""
+        self.ai_panel.set_state(PanelState.INPUTTING.value, hint)
+        return True
+
+    def _on_ai_edit_config_requested(self):
+        if not self.is_ai_chat_enabled():
+            self.ai_panel.set_state(PanelState.ERROR.value, "聊天功能已关闭，请先开启后再修改配置。")
+            return
+
+        config = self._ensure_ai_config_ready()
+        if config is None:
+            return
+
+        updated = self._prompt_ai_config_dialog(config)
+        if updated is None:
+            return
+
+        self.ai_panel.set_state(PanelState.INPUTTING.value, f"已更新配置：{updated.model}")
+
+    def _prompt_ai_config_dialog(self, current_config):
+        presets = self.ai_settings_service.provider_presets
+        result = get_ai_config_input(
+            self,
+            presets,
+            current_provider=current_config.provider,
+            current_model=current_config.model,
+            current_base_url=current_config.base_url,
+            current_api_key=current_config.api_key,
+        )
+        if result is None:
+            return None
+
+        updated = AIConfig(
+            provider=result["provider"],
+            api_key=result["api_key"],
+            base_url=result["base_url"],
+            model=result["model"],
+            context_rounds=max(1, int(current_config.context_rounds or 5)),
+        )
+        self.ai_settings_service.save_config(updated)
+        self.ai_panel.set_model_name(updated.model)
+        return updated
+
+    def _ensure_ai_config_ready(self):
+        config = self.ai_settings_service.load_config()
+        if config.api_key and config.base_url and config.model:
+            self.ai_panel.set_model_name(config.model)
+            return config
+
+        updated = self._prompt_ai_config_dialog(config)
+        if updated is None:
+            self.ai_panel.set_state(PanelState.ERROR.value, "未完成 AI 配置，已取消。")
+            return None
+        return updated
+
+    def _build_ai_request_messages(self, context_rounds):
+        rounds = max(1, int(context_rounds))
+        max_messages = rounds * 2 + 1
+        history = [msg for msg in self.ai_messages if msg.role in ("user", "assistant")]
+        history = history[-max_messages:]
+        return [msg.to_request_payload() for msg in history]
+
+    def _append_ai_message(self, message, rendered_html=None):
+        self.ai_messages.append(message)
+        if len(self.ai_messages) > 200:
+            self.ai_messages = self.ai_messages[-200:]
+
+        if getattr(self, "ai_panel", None) is not None:
+            self.ai_panel.append_message(message, rendered_html=rendered_html)
+
+    def _on_ai_user_submit(self, user_text):
+        if not user_text:
+            return
+
+        if not self.is_ai_chat_enabled():
+            self.ai_panel.set_state(PanelState.ERROR.value, "聊天功能已关闭，请在设置中开启后再试。")
+            return
+
+        if self._ai_request_thread is not None:
+            self.ai_panel.set_state(PanelState.REQUESTING.value, "正在等待上一条回复，请稍候。")
+            return
+
+        config = self._ensure_ai_config_ready()
+        if config is None:
+            self.ai_panel.set_state(PanelState.ERROR.value, "未完成 AI 配置，已取消发送。")
+            return
+
+        user_message = ChatMessage(role="user", content=user_text, render_type="text")
+        self._append_ai_message(user_message)
+
+        messages = self._build_ai_request_messages(config.context_rounds)
+        self.ai_panel.set_state(PanelState.REQUESTING.value, "AI 正在思考...")
+        self._start_ai_request(config, messages)
+
+    def _start_ai_request(self, config, messages):
+        thread = QThread(self)
+        worker = AIRequestWorker(config=config, messages=messages)
+        worker.moveToThread(thread)
+
+        thread.started.connect(worker.run)
+        worker.succeeded.connect(self._on_ai_request_success)
+        worker.failed.connect(self._on_ai_request_failed)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        thread.finished.connect(lambda t=thread: self._on_ai_worker_done(t))
+
+        self._ai_request_thread = thread
+        self._ai_request_worker = worker
+        thread.start()
+
+    def _on_ai_request_success(self, reply_text):
+        formatted = format_response_content(reply_text)
+        ai_message = ChatMessage(
+            role="assistant",
+            content=formatted.get("text", ""),
+            render_type=formatted.get("render_type", "text"),
+        )
+        self._append_ai_message(ai_message, rendered_html=formatted.get("html"))
+        self.ai_panel.set_state(PanelState.INPUTTING.value)
+        self.ai_panel.focus_input()
+
+    def _on_ai_request_failed(self, error_message):
+        self.ai_panel.set_state(PanelState.ERROR.value, error_message)
+        self.ai_panel.focus_input()
+
+    def _on_ai_worker_done(self, thread_obj):
+        if self._ai_request_thread is thread_obj:
+            self._ai_request_thread = None
+            self._ai_request_worker = None
+
+        if self.ai_panel.state == PanelState.REQUESTING.value:
+            self.ai_panel.set_state(PanelState.INPUTTING.value)
+
+    def _shutdown_ai_worker(self):
+        thread = getattr(self, "_ai_request_thread", None)
+        if thread is None:
+            return
+
+        try:
+            if thread.isRunning():
+                thread.requestInterruption()
+                thread.quit()
+                thread.wait(1200)
+        except Exception:
+            pass
+        finally:
+            self._ai_request_thread = None
+            self._ai_request_worker = None
+
+    def _shutdown_global_listener(self):
+        bridge = getattr(self, "global_input_bridge", None)
+        if bridge is None:
+            return
+        try:
+            bridge.stop()
+        except Exception:
+            pass
 
     def initUI(self):
         # ... (保持不变)
@@ -898,6 +1169,9 @@ class MaidWindow(QWidget):
             if not self._is_at_bottom_boundary() and not self._allow_air_interaction():
                 return
 
+            if self.is_ai_panel_visible():
+                self.ai_panel.hide_panel()
+
             # 右击也可以关闭当前弹出的提示气泡
             self.dialogue_system.hide_dialogue()
             
@@ -1037,8 +1311,27 @@ class MaidWindow(QWidget):
         self.raise_()
         self.activateWindow()
 
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        if getattr(self, "ai_panel", None) is not None and self.ai_panel.isVisible():
+            self.ai_panel._reposition_to_anchor()
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
+        if getattr(self, "ai_panel", None) is not None and self.ai_panel.isVisible():
+            self.ai_panel._reposition_to_anchor()
+
+    def closeEvent(self, event):
+        try:
+            if getattr(self, "ai_panel", None) is not None:
+                self.ai_panel.hide_panel()
+                self.ai_panel.deleteLater()
+        except Exception:
+            pass
+
+        self._shutdown_ai_worker()
+        self._shutdown_global_listener()
+        super().closeEvent(event)
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)

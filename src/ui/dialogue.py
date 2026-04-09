@@ -239,6 +239,10 @@ class DialogueSystem:
         self.current_bubble = None
 
     def show_message(self, title, content):
+        if getattr(self.parent, "_suppress_dialogue_bubble", False):
+            self.hide_dialogue()
+            return
+
         # 如果之前有气泡，先关闭旧的
         if self.current_bubble:
             try:
