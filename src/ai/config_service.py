@@ -12,7 +12,6 @@ DEFAULT_CONTEXT_ROUNDS = 5
 class ProviderPreset:
     name: str
     base_url: str
-    default_model: str
 
 
 @dataclass
@@ -20,16 +19,15 @@ class AIConfig:
     provider: str
     api_key: str
     base_url: str
-    model: str
     context_rounds: int = DEFAULT_CONTEXT_ROUNDS
 
 
 PROVIDER_PRESETS: tuple[ProviderPreset, ...] = (
-    ProviderPreset("DeepSeek", "https://api.deepseek.com", "deepseek-chat"),
-    ProviderPreset("OpenAI", "https://api.openai.com/v1", "gpt-4o-mini"),
-    ProviderPreset("Qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"),
-    ProviderPreset("Doubao", "https://ark.cn-beijing.volces.com/api/v3", "doubao-1.5-pro-32k"),
-    ProviderPreset("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.0-flash"),
+    ProviderPreset("DeepSeek", "https://api.deepseek.com"),
+    ProviderPreset("OpenAI", "https://api.openai.com/v1"),
+    ProviderPreset("Qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+    ProviderPreset("Doubao", "https://ark.cn-beijing.volces.com/api/v3"),
+    ProviderPreset("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai"),
 )
 
 
@@ -56,7 +54,6 @@ class AISettingsService:
             provider=preset.name,
             api_key="",
             base_url=preset.base_url,
-            model=preset.default_model,
             context_rounds=DEFAULT_CONTEXT_ROUNDS,
         )
 
@@ -65,15 +62,12 @@ class AISettingsService:
 
         provider = str(self.settings.value("ai/provider", default.provider) or default.provider).strip()
         base_url = str(self.settings.value("ai/base_url", "") or "").strip()
-        model = str(self.settings.value("ai/model", "") or "").strip()
         api_key = str(self.settings.value("ai/api_key", "") or "").strip()
         context_rounds = self._safe_context_rounds(self.settings.value("ai/context_rounds", default.context_rounds))
 
         preset = self.get_preset_by_name(provider)
         if not base_url:
             base_url = preset.base_url if preset else default.base_url
-        if not model:
-            model = preset.default_model if preset else default.model
 
         if not provider:
             provider = default.provider
@@ -82,7 +76,6 @@ class AISettingsService:
             provider=provider,
             api_key=api_key,
             base_url=base_url,
-            model=model,
             context_rounds=context_rounds,
         )
 
@@ -90,7 +83,8 @@ class AISettingsService:
         self.settings.setValue("ai/provider", config.provider)
         self.settings.setValue("ai/api_key", config.api_key)
         self.settings.setValue("ai/base_url", config.base_url)
-        self.settings.setValue("ai/model", config.model)
+        # Clean legacy key from earlier versions where model was configurable.
+        self.settings.remove("ai/model")
         self.settings.setValue("ai/context_rounds", int(max(1, config.context_rounds)))
         self.settings.sync()
 

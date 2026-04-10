@@ -143,11 +143,10 @@ def get_ai_config_input(
     parent_widget,
     provider_presets,
     current_provider="",
-    current_model="",
     current_base_url="",
     current_api_key="",
 ):
-    """在单个对话框中编辑 AI 供应商、模型、Base URL 与 API Key。"""
+    """在单个对话框中编辑 AI 供应商、Base URL 与 API Key。"""
     dialog = QDialog(parent_widget)
     dialog.setWindowTitle("AI 配置")
     dialog.setModal(True)
@@ -211,7 +210,7 @@ def get_ai_config_input(
     root.setContentsMargins(14, 14, 14, 12)
     root.setSpacing(10)
 
-    desc = QLabel("可在此修改供应商、模型、服务地址和 API Key", dialog)
+    desc = QLabel("可在此修改供应商、服务地址和 API Key", dialog)
     desc.setStyleSheet("font-size:12px; color:#5e7188; font-weight:500;")
     root.addWidget(desc)
 
@@ -224,10 +223,6 @@ def get_ai_config_input(
     provider_combo = QComboBox(dialog)
     provider_combo.addItems([preset.name for preset in provider_list])
     form.addRow("供应商", provider_combo)
-
-    model_edit = QLineEdit(dialog)
-    model_edit.setPlaceholderText("例如 deepseek-chat")
-    form.addRow("模型", model_edit)
 
     base_url_edit = QLineEdit(dialog)
     base_url_edit.setPlaceholderText("例如 https://api.deepseek.com")
@@ -243,7 +238,6 @@ def get_ai_config_input(
     target_provider = current_provider if current_provider in preset_map else provider_list[0].name
     provider_combo.setCurrentText(target_provider)
 
-    model_edit.setText(str(current_model or "").strip())
     base_url_edit.setText(str(current_base_url or "").strip())
     key_edit.setText(str(current_api_key or "").strip())
 
@@ -252,14 +246,13 @@ def get_ai_config_input(
         if preset is None:
             return
         base_url_edit.setText(preset.base_url)
-        model_edit.setText(preset.default_model)
 
     provider_combo.currentTextChanged.connect(apply_provider_defaults)
 
-    if not base_url_edit.text().strip() or not model_edit.text().strip():
+    if not base_url_edit.text().strip():
         apply_provider_defaults(target_provider)
 
-    tips = QLabel("提示：切换供应商会自动填充推荐 Base URL 与模型，可手动再改。", dialog)
+    tips = QLabel("提示：切换供应商会自动填充推荐 Base URL，可手动修改。", dialog)
     tips.setWordWrap(True)
     tips.setStyleSheet("font-size:12px; color:#667c95; font-weight:500;")
     root.addWidget(tips)
@@ -282,15 +275,11 @@ def get_ai_config_input(
 
     def on_accept():
         provider = provider_combo.currentText().strip()
-        model = model_edit.text().strip()
         base_url = base_url_edit.text().strip()
         api_key = key_edit.text().strip()
 
         if not provider:
             error_label.setText("请选择供应商。")
-            return
-        if not model:
-            error_label.setText("模型不能为空。")
             return
         if not base_url:
             error_label.setText("Base URL 不能为空。")
@@ -301,7 +290,6 @@ def get_ai_config_input(
 
         dialog._result = {
             "provider": provider,
-            "model": model,
             "base_url": base_url,
             "api_key": api_key,
         }

@@ -11,14 +11,23 @@ class AIClientError(RuntimeError):
 
 
 class OpenAICompatibleClient:
+    _MODEL_BY_PROVIDER = {
+        "deepseek": "deepseek-chat",
+        "openai": "gpt-4o-mini",
+        "qwen": "qwen-plus",
+        "doubao": "doubao-1.5-pro-32k",
+        "gemini": "gemini-2.0-flash",
+    }
+
     def __init__(self, config: AIConfig, timeout_seconds: int = 30):
         self.config = config
         self.timeout_seconds = max(5, int(timeout_seconds))
 
     def chat(self, messages: list[dict[str, str]]) -> str:
         endpoint = self._build_endpoint()
+        model_name = self._resolve_model_name()
         payload = {
-            "model": self.config.model,
+            "model": model_name,
             "messages": messages,
         }
 
@@ -66,9 +75,27 @@ class OpenAICompatibleClient:
             raise AIClientError("AI 服务地址为空，请先完成配置。")
         if not self.config.api_key:
             raise AIClientError("未检测到 API Key，请先完成配置。")
-        if not self.config.model:
-            raise AIClientError("AI 模型为空，请先完成配置。")
         return f"{base_url}/chat/completions"
+
+    def _resolve_model_name(self) -> str:
+        provider = str(getattr(self.config, "provider", "") or "").strip().lower()
+        if provider in self._MODEL_BY_PROVIDER:
+            return self._MODEL_BY_PROVIDER[provider]
+
+        base_url = str(self.config.base_url or "").strip().lower()
+        if "deepseek" in base_url:
+            return "deepseek-chat"
+        if "dashscope.aliyuncs.com" in base_url:
+            return "qwen-plus"
+        if "volces.com" in base_url or "ark.cn" in base_url:
+            return "doubao-1.5-pro-32k"
+        if "generativelanguage.googleapis.com" in base_url:
+            return "gemini-2.0-flash"
+        if "api.openai.com" in base_url:
+            return "gpt-4o-mini"
+
+        # Fallback for unknown OpenAI-compatible providers.
+        return "gpt-4o-mini"
 
     @staticmethod
     def _extract_content(data: dict) -> str:

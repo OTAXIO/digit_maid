@@ -1,4 +1,5 @@
 import os
+import json
 import time
 import random
 import math
@@ -89,7 +90,8 @@ class MaidWindow(QWidget):
         self.ai_panel.submit_requested.connect(self._on_ai_user_submit)
         self.ai_panel.edit_config_requested.connect(self._on_ai_edit_config_requested)
         self.ai_panel.visibility_changed.connect(self._on_ai_panel_visibility_changed)
-        self.ai_panel.set_model_name(self.ai_settings_service.load_config().model)
+        self.ai_panel.set_connection_hint(self.ai_settings_service.load_config().base_url)
+        self.ai_system_prompt = self._load_ai_system_prompt()
         self.ai_messages = []
         self._ai_request_thread = None
         self._ai_request_worker = None
@@ -253,7 +255,7 @@ class MaidWindow(QWidget):
         if config is None:
             return False
 
-        self.ai_panel.set_model_name(config.model)
+        self.ai_panel.set_connection_hint(config.base_url)
         self.dialogue_system.hide_dialogue()
         self.ai_panel.show_panel()
         source_text = "空格长按" if trigger_source == "space_hold" else "中键点击" if trigger_source == "middle_click" else ""
@@ -274,7 +276,7 @@ class MaidWindow(QWidget):
         if updated is None:
             return
 
-        self.ai_panel.set_state(PanelState.INPUTTING.value, f"已更新配置：{updated.model}")
+        self.ai_panel.set_state(PanelState.INPUTTING.value, "已更新 AI 配置")
 
     def _prompt_ai_config_dialog(self, current_config):
         presets = self.ai_settings_service.provider_presets
@@ -282,7 +284,6 @@ class MaidWindow(QWidget):
             self,
             presets,
             current_provider=current_config.provider,
-            current_model=current_config.model,
             current_base_url=current_config.base_url,
             current_api_key=current_config.api_key,
         )
@@ -293,17 +294,16 @@ class MaidWindow(QWidget):
             provider=result["provider"],
             api_key=result["api_key"],
             base_url=result["base_url"],
-            model=result["model"],
             context_rounds=max(1, int(current_config.context_rounds or 5)),
         )
         self.ai_settings_service.save_config(updated)
-        self.ai_panel.set_model_name(updated.model)
+        self.ai_panel.set_connection_hint(updated.base_url)
         return updated
 
     def _ensure_ai_config_ready(self):
         config = self.ai_settings_service.load_config()
-        if config.api_key and config.base_url and config.model:
-            self.ai_panel.set_model_name(config.model)
+        if config.api_key and config.base_url:
+            self.ai_panel.set_connection_hint(config.base_url)
             return config
 
         updated = self._prompt_ai_config_dialog(config)
@@ -317,7 +317,85 @@ class MaidWindow(QWidget):
         max_messages = rounds * 2 + 1
         history = [msg for msg in self.ai_messages if msg.role in ("user", "assistant")]
         history = history[-max_messages:]
-        return [msg.to_request_payload() for msg in history]
+        payload = [msg.to_request_payload() for msg in history]
+
+        system_prompt = str(getattr(self, "ai_system_prompt", "") or "").strip()
+        if system_prompt:
+            payload.insert(0, {"role": "system", "content": system_prompt})
+        return payload
+
+    def _load_ai_system_prompt(self):
+        character_dir = os.path.join(self.root_dir, "src", "ai", "character")
+        try:
+            candidates = sorted(
+                name for name in os.listdir(character_dir)
+                if name.lower().endswith(".json")
+            )
+        except OSError:
+            return ""
+
+        if not candidates:
+            return ""
+
+        character_path = os.path.join(character_dir, candidates[0])
+        try:
+            with open(character_path, "r", encoding="utf-8") as fp:
+                raw_content = fp.read().strip()
+        except OSError:
+            return ""
+
+        if not raw_content:
+            return ""
+
+        try:
+            payload = json.loads(raw_content)
+        except json.JSONDecodeError:
+            # Backward-compatible fallback for legacy plain-text profile files.
+            return raw_content
+
+        return self._compose_character_prompt(payload)
+
+    @staticmethod
+    def _compose_character_prompt(payload):
+        if not isinstance(payload, dict):
+            return ""
+
+        explicit_prompt = str(payload.get("system_prompt") or "").strip()
+        if explicit_prompt:
+            return explicit_prompt
+
+        def _normalize_lines(value):
+            if isinstance(value, str):
+                cleaned = value.strip()
+                return [cleaned] if cleaned else []
+            if isinstance(value, list):
+                lines = []
+                for item in value:
+                    text = str(item or "").strip()
+                    if text:
+                        lines.append(text)
+                return lines
+            return []
+
+        sections = [
+            ("核心身份", _normalize_lines(payload.get("core_identity"))),
+            ("语气与表达规则", _normalize_lines(payload.get("tone_rules"))),
+            ("核心功能职责", _normalize_lines(payload.get("responsibilities"))),
+            ("对话准则", _normalize_lines(payload.get("dialogue_principles"))),
+            ("禁止项", _normalize_lines(payload.get("prohibitions"))),
+        ]
+
+        name = str(payload.get("name") or "").strip()
+        merged = [f"你现在扮演{name}。" if name else "请保持固定角色设定进行对话。"]
+
+        for title, lines in sections:
+            if not lines:
+                continue
+            merged.append(f"\n{title}：")
+            for idx, line in enumerate(lines, start=1):
+                merged.append(f"{idx}. {line}")
+
+        return "\n".join(merged).strip()
 
     def _append_ai_message(self, message, rendered_html=None):
         self.ai_messages.append(message)
@@ -343,6 +421,10 @@ class MaidWindow(QWidget):
         if config is None:
             self.ai_panel.set_state(PanelState.ERROR.value, "未完成 AI 配置，已取消发送。")
             return
+
+        refreshed_prompt = self._load_ai_system_prompt()
+        if refreshed_prompt:
+            self.ai_system_prompt = refreshed_prompt
 
         user_message = ChatMessage(role="user", content=user_text, render_type="text")
         self._append_ai_message(user_message)

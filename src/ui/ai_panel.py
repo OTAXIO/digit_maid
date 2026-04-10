@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import html
-from datetime import datetime
 
 from PyQt6.QtCore import QPoint, Qt, QSettings, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -185,11 +184,6 @@ class AIChatPanel(QWidget):
         title_row = QHBoxLayout(self.header)
         title_row.setContentsMargins(0, 0, 0, 0)
         title_row.setSpacing(8)
-
-        self.title_label = QLabel("AI 对话", self.main_frame)
-        self.title_label.setStyleSheet("font-size: 17px; font-weight: 700; color: #172338;")
-        self.title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        title_row.addWidget(self.title_label)
         title_row.addStretch(1)
 
         self.state_chip = QLabel("输入", self.main_frame)
@@ -382,13 +376,17 @@ class AIChatPanel(QWidget):
         self._set_state_chip("输入", "#e1f4e9", "#1f6a3c", "#c1e6cf")
         self._sync_anchor_controls()
 
-    def set_model_name(self, model_name: str):
-        model_text = (model_name or "").strip()
-        if not model_text:
-            model_text = "未设置"
+    def set_connection_hint(self, base_url: str):
+        base_url_text = (base_url or "").strip()
+        if not base_url_text:
+            base_url_text = "未设置"
 
         if hasattr(self, "config_btn"):
-            self.config_btn.setToolTip(f"当前模型: {model_text}\\n点击可修改模型/Base URL/API Key")
+            self.config_btn.setToolTip(f"当前 Base URL: {base_url_text}\\n点击可修改 Base URL/API Key")
+
+    # Backward compatibility for existing callers.
+    def set_model_name(self, model_name: str):
+        self.set_connection_hint(model_name)
 
     def set_anchor_widget(self, anchor_widget):
         self.anchor_widget = anchor_widget
@@ -442,7 +440,6 @@ class AIChatPanel(QWidget):
     def append_message(self, message: ChatMessage, rendered_html: str | None = None):
         card = QFrame(self.history_widget)
         is_user = message.role == "user"
-        role_name = "你" if is_user else "AI"
 
         card.setStyleSheet(
             "QFrame {"
@@ -457,10 +454,6 @@ class AIChatPanel(QWidget):
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(11, 8, 11, 8)
         card_layout.setSpacing(4)
-
-        header = QLabel(f"{role_name} · {self._format_timestamp(message.timestamp)}", card)
-        header.setStyleSheet("font-size:11px; color:#6a7689; font-weight:700;")
-        card_layout.addWidget(header)
 
         content = QLabel(card)
         content.setWordWrap(True)
@@ -704,16 +697,6 @@ class AIChatPanel(QWidget):
     def _sync_anchor_controls(self):
         if hasattr(self, "return_btn"):
             self.return_btn.setEnabled(not self._follow_anchor)
-
-    @staticmethod
-    def _format_timestamp(value: str) -> str:
-        if not value:
-            return datetime.now().strftime("%H:%M:%S")
-        try:
-            dt = datetime.fromisoformat(value)
-            return dt.strftime("%H:%M:%S")
-        except ValueError:
-            return value
 
     def _init_resize_handles(self):
         self._resize_handle_thickness = 6
