@@ -6,6 +6,7 @@ build/
 dist/
 *.spec
 !DigitMaid.spec
+!DigitMaid.mac.spec
 *.pkg
 *.exe
 *.spine

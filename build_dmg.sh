@@ -55,17 +55,7 @@ echo "[2/5] Installing dependencies"
 "$PYTHON_EXE" -m pip install -r requirements.txt pyinstaller==6.16.0
 
 echo "[3/5] Building macOS app with icon"
-"$PYTHON_EXE" -m PyInstaller \
-  --noconfirm \
-  --clean \
-  --windowed \
-  --name "$APP_NAME" \
-  --icon "$ICNS_PATH" \
-  --add-data "resource:resource" \
-  --add-data "src/function/apps.yaml:src/function" \
-  --add-data "src/input/dialog_style.yaml:src/input" \
-  --add-data "src/ui/maid_animations.yaml:src/ui" \
-  src/core/run.py
+"$PYTHON_EXE" -m PyInstaller --noconfirm --clean DigitMaid.mac.spec
 
 echo "[4/5] Packing DMG"
 rm -f "$DMG_PATH"
