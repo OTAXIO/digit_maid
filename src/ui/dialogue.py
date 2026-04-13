@@ -1,4 +1,5 @@
 import math
+import sys
 
 from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QApplication
 from PyQt6.QtCore import Qt, QTimer, QRectF
@@ -59,8 +60,11 @@ class SpeechBubble(QWidget):
         self.arrow_tip_dx = 10
         self.arrow_end_dx = 15
         
-        # 设置窗口属性：无边框、置顶、透明背景
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        # macOS 下避免始终置顶，防止影响切换到其他应用。
+        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+        if sys.platform != "darwin":
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
         # 布局与内容

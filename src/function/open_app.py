@@ -35,10 +35,10 @@ def _launch_windows_app(target):
 def _launch_macos_app(target):
     """Launch app on macOS using open command."""
     if os.path.exists(target):
-        subprocess.Popen(["open", target], shell=False)
+        subprocess.run(["open", target], check=True, capture_output=True)
         return
 
-    subprocess.Popen(["open", "-a", target], shell=False)
+    subprocess.run(["open", "-a", target], check=True, capture_output=True)
 
 def load_app_paths():
     """解析简单的 YAML 文件读取应用路径配置"""
@@ -119,18 +119,18 @@ def open_application(app_name):
                             try:
                                 _launch_macos_app(path)
                                 return f"已启动{keyword}"
-                            except FileNotFoundError:
+                            except (FileNotFoundError, subprocess.CalledProcessError):
                                 continue
                     try:
                         _launch_macos_app(keyword)
                         return f"已启动{keyword}"
-                    except FileNotFoundError:
+                    except (FileNotFoundError, subprocess.CalledProcessError):
                         return f"未找到{keyword}，请确认 apps.yaml 中的安装位置"
 
             try:
                 _launch_macos_app(app_name)
                 return f"尝试启动 {app_name}"
-            except FileNotFoundError:
+            except (FileNotFoundError, subprocess.CalledProcessError):
                 return f"找不到应用: {app_name}"
         else:
             return "当前仅支持 Windows / macOS 系统的简单应用启动"

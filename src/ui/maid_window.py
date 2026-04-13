@@ -25,6 +25,7 @@ except ImportError:
 class MaidWindow(QWidget):
     def __init__(self):
         super().__init__()
+        self.is_macos = sys.platform == "darwin"
 
         # 素材未加载时的初始窗口大小（真实显示大小由 GIF 帧尺寸决定）
         self.default_maid_width = 85
@@ -103,10 +104,12 @@ class MaidWindow(QWidget):
         self._fall_timer = QTimer(self)
         self._fall_timer.timeout.connect(self._on_fall_tick)
 
-        # 定时强制置顶计时器，避免被网页全屏等其他抢占焦点的程序压在下方
+        # 非 macOS 平台保持定时置顶，避免被全屏程序遮挡。
+        # macOS 下不启用，防止一直压在其他应用上方影响操作。
         self.topmost_timer = QTimer(self)
         self.topmost_timer.timeout.connect(self._keep_on_top)
-        self.topmost_timer.start(1000)  # 每秒置顶一次，降低事件循环压力
+        if not self.is_macos:
+            self.topmost_timer.start(1000)  # 每秒置顶一次，降低事件循环压力
 
         # 先播放 start 动画（若配置不存在则会在底层 fallback 到 idle 或返回 False）
         if not self.play_action("start", force_loop=False):
@@ -115,6 +118,8 @@ class MaidWindow(QWidget):
         self._reset_inactivity_timer()
 
     def _keep_on_top(self):
+        if self.is_macos:
+            return
         # 仅提升Z轴顺序，不窃取焦点，避免影响用户打字
         self.raise_()
 
@@ -147,7 +152,10 @@ class MaidWindow(QWidget):
 
     def initUI(self):
         # ... (保持不变)
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+        if not self.is_macos:
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
         # 获取屏幕尺寸
@@ -1032,8 +1040,12 @@ class MaidWindow(QWidget):
 
     def force_on_top(self):
         """强制将窗口保持在屏幕最顶层"""
-        # 使用 Qt 的方式进行窗口置顶，避免在 Windows 下重复 setWindowFlags 产生僵尸窗口句柄
+        # macOS 下避免主动抢焦点，防止影响其他应用操作。
         self.show()
+        if self.is_macos:
+            return
+
+        # 使用 Qt 的方式进行窗口置顶，避免在 Windows 下重复 setWindowFlags 产生僵尸窗口句柄
         self.raise_()
         self.activateWindow()
 

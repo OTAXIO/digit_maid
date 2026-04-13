@@ -183,6 +183,17 @@ class CustomChoiceDialog(QDialog):
             n_path = self.theme.get(f"{key_prefix}_normal", "")
             h_path = self.theme.get(f"{key_prefix}_hover", "")
             p_path = self.theme.get(f"{key_prefix}_pressed", "")
+
+            # 回退策略：未配置独立按钮贴图时，优先复用圆形菜单按钮贴图
+            # 不保存按钮使用 quit 图，其余使用 select 图。
+            fallback_key = "circular_btn_quit" if key_prefix == "btn_cancel" else "circular_btn_select"
+            fallback_path = self.theme.get(fallback_key, "")
+            if not n_path and fallback_path:
+                n_path = fallback_path
+            if not h_path and fallback_path:
+                h_path = fallback_path
+            if not p_path and fallback_path:
+                p_path = fallback_path
             
             valid_paths = {}
             for state, p in [("normal", n_path), ("hover", h_path), ("pressed", p_path)]:
