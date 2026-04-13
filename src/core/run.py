@@ -1,7 +1,7 @@
 import sys
 import os
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtCore import QSharedMemory
 
 # 调整 Python 路径以确保可以从 src 导入模块
@@ -17,6 +17,11 @@ if project_root not in sys.path:
     sys.path.append(project_root)
 
 from src.ui.maid_window import MaidWindow
+
+
+def _resolve_resource_path(*parts):
+    """Resolve a resource path in both dev and PyInstaller runtime."""
+    return os.path.join(project_root, *parts)
 
 
 def _acquire_single_instance_lock():
@@ -41,6 +46,10 @@ def main():
     
     app = QApplication(sys.argv)
     app.setFont(QFont("Microsoft YaHei"))
+
+    icon_path = _resolve_resource_path("resource", "wisdel", "皮肤素材", "维什戴尔大人.png")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
 
     instance_lock = _acquire_single_instance_lock()
     if instance_lock is None:
