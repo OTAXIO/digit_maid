@@ -22,6 +22,7 @@ actions:
   screenshot: sit.gif
   open_app: special.gif
   start: start.gif
+  hide: hide.gif
   die: die.gif
 
 loops:
@@ -36,4 +37,5 @@ loops:
   screenshot: false
   open_app: false
   start: false
+  hide: true
   die: false
