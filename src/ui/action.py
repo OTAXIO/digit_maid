@@ -15,6 +15,11 @@ class MaidActions:
         "direct": "快速直落",
         "none": "不下坠",
     }
+    IDLE_MODE_LABELS = {
+        "default": "默认模式",
+        "sport": "运动模式",
+        "lazy": "懒惰模式",
+    }
 
     def __init__(self, parent_widget, dialogue_system):
         self.parent = parent_widget
@@ -89,6 +94,68 @@ class MaidActions:
             self.parent.play_action("idle")
 
         self.dialogue.show_message("下落模式", f"已切换为: {self.FALL_MODE_LABELS[mode]}")
+        return True
+
+    def _get_current_idle_mode(self):
+        anim_cfg = getattr(self.parent, "anim_cfg", {}) or {}
+        mode = str(anim_cfg.get("idle_mode", "")).strip().lower()
+        if mode in self.IDLE_MODE_LABELS:
+            return mode
+        return "default"
+
+    def _set_idle_mode(self, mode):
+        mode = str(mode).strip().lower()
+        if mode not in self.IDLE_MODE_LABELS:
+            return False
+
+        cfg_path = self._get_maid_animation_cfg_path()
+        try:
+            with open(cfg_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+
+            replaced = False
+            for idx, line in enumerate(lines):
+                if line.strip().startswith("idle_mode:"):
+                    lines[idx] = f"idle_mode: {mode}\n"
+                    replaced = True
+                    break
+
+            if not replaced:
+                insert_at = 0
+                for idx, line in enumerate(lines):
+                    stripped = line.strip()
+                    if stripped.startswith("fall_mode:"):
+                        insert_at = idx + 1
+                        break
+                    if stripped.startswith("base_dir:"):
+                        insert_at = idx + 1
+                lines.insert(insert_at, f"idle_mode: {mode}\n")
+
+            with open(cfg_path, "w", encoding="utf-8", newline="") as f:
+                f.writelines(lines)
+        except Exception as e:
+            msg = f"设置待机模式失败: {e}"
+            print(msg)
+            self.dialogue.show_message("待机模式", msg)
+            return False
+
+        if hasattr(self.parent, "anim_cfg") and isinstance(self.parent.anim_cfg, dict):
+            self.parent.anim_cfg["idle_mode"] = mode
+
+        # 切换待机模式后重置待机状态机，避免沿用旧模式的阶段与计时。
+        if hasattr(self.parent, "wander_timer"):
+            self.parent.wander_timer.stop()
+        if hasattr(self.parent, "_stop_inactivity_timer"):
+            self.parent._stop_inactivity_timer(reset_stage=True)
+
+        if (
+            not getattr(self.parent, "menu_interact_mode", False)
+            and not getattr(self.parent, "_custom_scale_adjusting", False)
+            and not getattr(self.parent, "_edge_hidden", False)
+        ):
+            self.parent.play_action("idle")
+
+        self.dialogue.show_message("待机模式", f"已切换为: {self.IDLE_MODE_LABELS[mode]}")
         return True
 
     def _apply_maid_scale(self, scale_value, tip_prefix=""):
@@ -337,6 +404,19 @@ class MaidActions:
             mode_action.triggered.connect(lambda checked, m=mode_key: checked and self._set_fall_mode(m))
             fall_mode_group.addAction(mode_action)
             fall_mode_menu.addAction(mode_action)
+
+        current_idle_mode = self._get_current_idle_mode()
+        current_idle_mode_label = self.IDLE_MODE_LABELS.get(current_idle_mode, "默认模式")
+        idle_mode_menu = settings_menu.addMenu(f"待机模式 ({current_idle_mode_label})")
+        idle_mode_group = QActionGroup(idle_mode_menu)
+        idle_mode_group.setExclusive(True)
+        for mode_key, mode_label in self.IDLE_MODE_LABELS.items():
+            mode_action = QAction(mode_label, self.parent)
+            mode_action.setCheckable(True)
+            mode_action.setChecked(mode_key == current_idle_mode)
+            mode_action.triggered.connect(lambda checked, m=mode_key: checked and self._set_idle_mode(m))
+            idle_mode_group.addAction(mode_action)
+            idle_mode_menu.addAction(mode_action)
         
         action_quit = QAction('退出', self.parent)
         action_quit.triggered.connect(self.trigger_quit)
@@ -424,6 +504,16 @@ class MaidActions:
             for mode, label in self.FALL_MODE_LABELS.items()
         ]
 
+        current_idle_mode = self._get_current_idle_mode()
+        idle_mode_sub_items = [
+            {
+                'label': label,
+                'text_color': "#e32e2e" if mode == current_idle_mode else 'white',
+                'action': lambda m=mode: self._set_idle_mode(m)
+            }
+            for mode, label in self.IDLE_MODE_LABELS.items()
+        ]
+
         scale_sub_items = [
             {'label': '默认大小', 'action': lambda: self._apply_maid_scale(1.0, "已还原原大小")},
             {'label': '放大', 'action': lambda: self._apply_maid_scale(1.5, "已放大到 1.5 倍")},
@@ -451,6 +541,7 @@ class MaidActions:
         setting_label = [
             {'label': '大小调整', 'action': scale_sub_items},
             {'label': '下落模式', 'action': fall_mode_sub_items},
+            {'label': '待机模式', 'action': idle_mode_sub_items},
             {'label': '关闭自启动' if startup.is_startup_enabled() else '开启自启动', 'action': self.toggle_startup},
         ]
         top_items = [

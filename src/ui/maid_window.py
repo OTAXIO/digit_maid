@@ -76,7 +76,7 @@ class MaidWindow(QWidget):
         self._scale_preview_tip_timer.timeout.connect(self._on_scale_preview_stop)
         self._scale_preview_tip_delay_ms = 450
 
-        # 空闲状态机：15秒无交互进入 sit，再15秒无交互进入 sleep
+        # 空闲状态机：由 idle_mode 决定后续是 move/sit/sleep 的哪种组合。
         self.inactivity_stage = 0
         self.inactivity_timer = QTimer(self)
         self.inactivity_timer.setSingleShot(True)
@@ -252,6 +252,7 @@ class MaidWindow(QWidget):
             cfg = {
                 "base_dir": "resource/wisdel/皮肤素材/可用素材",
                 "fall_mode": "smooth",
+                "idle_mode": "default",
                 "smooth_fall": True,
                 "actions": {},
                 "loops": {},
@@ -274,6 +275,12 @@ class MaidWindow(QWidget):
                     mode = raw.split(":", 1)[1].strip().lower()
                     if mode in ("smooth", "direct", "none"):
                         cfg["fall_mode"] = mode
+                    continue
+
+                if raw.startswith("idle_mode:"):
+                    mode = raw.split(":", 1)[1].strip().lower()
+                    if mode in ("default", "sport", "lazy"):
+                        cfg["idle_mode"] = mode
                     continue
 
                 if raw.startswith("smooth_fall:"):
@@ -720,31 +727,50 @@ class MaidWindow(QWidget):
 
         new_x = self.x() + self.wander_speed
         screen_geo = self.screen().availableGeometry()
+        idle_mode = self._get_idle_mode()
         
         start_x = getattr(self, 'wander_start_x', self.x())
-        
-        # 碰到屏幕边缘或者超出50像素则转身
-        if new_x < screen_geo.left() or new_x < start_x - 100:
-            new_x = max(screen_geo.left(), start_x - 100)
-            self.wander_speed *= -1
-            self.is_flipped = False
-            if self.current_movie:
-                self.maid_label.setMovie(self.current_movie)
-        elif new_x + self.width() > screen_geo.right() or new_x > start_x + 100:
-            new_x = min(screen_geo.right() - self.width(), start_x + 100)
-            self.wander_speed *= -1
-            self.is_flipped = True
-            if self.current_movie:
-                pixmap = self.current_movie.currentPixmap()
-                if not pixmap.isNull():
-                    transform = QTransform().scale(-1, 1)
-                    self.maid_label.setPixmap(pixmap.transformed(transform))
+
+        if idle_mode == "sport":
+            # 运动模式取消起点范围边界，仅在屏幕边缘反弹。
+            if new_x < screen_geo.left():
+                new_x = screen_geo.left()
+                self.wander_speed *= -1
+                self.is_flipped = False
+                if self.current_movie:
+                    self.maid_label.setMovie(self.current_movie)
+            elif new_x + self.width() > screen_geo.right():
+                new_x = screen_geo.right() - self.width()
+                self.wander_speed *= -1
+                self.is_flipped = True
+                if self.current_movie:
+                    pixmap = self.current_movie.currentPixmap()
+                    if not pixmap.isNull():
+                        transform = QTransform().scale(-1, 1)
+                        self.maid_label.setPixmap(pixmap.transformed(transform))
+        else:
+            # 其他模式：碰到屏幕边缘或超出起点范围则转身。
+            if new_x < screen_geo.left() or new_x < start_x - 100:
+                new_x = max(screen_geo.left(), start_x - 100)
+                self.wander_speed *= -1
+                self.is_flipped = False
+                if self.current_movie:
+                    self.maid_label.setMovie(self.current_movie)
+            elif new_x + self.width() > screen_geo.right() or new_x > start_x + 100:
+                new_x = min(screen_geo.right() - self.width(), start_x + 100)
+                self.wander_speed *= -1
+                self.is_flipped = True
+                if self.current_movie:
+                    pixmap = self.current_movie.currentPixmap()
+                    if not pixmap.isNull():
+                        transform = QTransform().scale(-1, 1)
+                        self.maid_label.setPixmap(pixmap.transformed(transform))
             
         self.move(new_x, self.y())
 
     def _reset_inactivity_timer(self):
         self.inactivity_stage = 0
-        self._start_inactivity_timer(15000) # 15秒以后进入水平move
+        self._start_inactivity_timer(15000) # 15秒后按待机模式进入下一阶段
 
     def _start_inactivity_timer(self, duration_ms):
         if self._edge_hidden:
@@ -799,32 +825,79 @@ class MaidWindow(QWidget):
                 self.play_action("interact", force_loop=True)
             return
 
+        idle_mode = self._get_idle_mode()
+        if idle_mode == "sport":
+            self._on_inactivity_timeout_sport()
+        elif idle_mode == "lazy":
+            self._on_inactivity_timeout_lazy()
+        else:
+            self._on_inactivity_timeout_default()
+
+    def _enter_wander_stage(self):
+        # 15s无互动后进入移动阶段，并开启散步定时器。
+        direction = random.choice([-1, 1])
+        self.wander_speed = direction * 2
+        self.wander_start_x = self.x()
+        self.play_action("move", is_flipped=(direction < 0))
+        self.inactivity_stage = 1
+        self._start_inactivity_timer(15000)
+        self.wander_timer.start(50)
+
+    def _on_inactivity_timeout_default(self):
         if self.inactivity_stage == 0:
-            # 15s无互动：播放 move 动作
-            # 随机决定初次散步方向：-1为向左走，1为向右走
-            direction = random.choice([-1, 1])
-            self.wander_speed = direction * 2  # 速度可适度调整
-            self.wander_start_x = self.x()     # 记录散步起点
-            
-            # 向左走(direction < 0)时进行翻转
-            self.play_action("move", is_flipped=(direction < 0))
-            self.inactivity_stage = 1
-            self._start_inactivity_timer(15000) # 再15秒以后进入坐姿
-            self.wander_timer.start(50)       # 开启散步定时器 (50ms)
-        elif self.inactivity_stage == 1:
-            # 停止散步
+            self._enter_wander_stage()
+            return
+
+        if self.inactivity_stage == 1:
             self.wander_timer.stop()
-            # 播放 sit
             self.move(self.x(), self.y() + 30)
             self.play_action("sit")
             self.inactivity_stage = 2
-            self._start_inactivity_timer(15000) # 再15秒以后进入躺姿
-        elif self.inactivity_stage == 2:
-            # 播放 sleep
-            self.move(self.x() - 10, self.y() + 20)
-            self.play_action("sleep")
+            self._start_inactivity_timer(15000)
+            return
+
+        self.move(self.x() - 10, self.y() + 20)
+        self.play_action("sleep")
+        self.inactivity_stage = 0
+        self._start_inactivity_timer(45000)
+
+    def _on_inactivity_timeout_sport(self):
+        if self.inactivity_stage == 0:
+            self._enter_wander_stage()
+            return
+
+        if self.inactivity_stage != 1:
             self.inactivity_stage = 0
-            self._start_inactivity_timer(45000)
+            self.play_action("idle")
+            return
+
+        if random.random() < 0.25:
+            self.wander_timer.stop()
+            self.move(self.x(), self.y() + 30)
+            self.play_action("sit")
+            self.inactivity_stage = 0
+        else:
+            # 75% 概率保持运动，不触发坐下。
+            self.inactivity_stage = 1
+            if self.current_action != "move":
+                self.play_action("move", is_flipped=(self.wander_speed < 0))
+            if not self.wander_timer.isActive():
+                self.wander_timer.start(50)
+        self._start_inactivity_timer(15000)
+
+    def _on_inactivity_timeout_lazy(self):
+        # 懒惰模式固定两段：先坐下，再睡眠；睡眠后不再循环。
+        if self.inactivity_stage != 2:
+            self.wander_timer.stop()
+            self.move(self.x(), self.y() + 30)
+            self.play_action("sit")
+            self.inactivity_stage = 2
+            self._start_inactivity_timer(15000)
+            return
+
+        self.move(self.x() - 10, self.y() + 20)
+        self.play_action("sleep")
+        self._stop_inactivity_timer(reset_stage=False)
 
     def _bottom_y_limit(self):
         screen_geo = self.screen().availableGeometry()
@@ -841,6 +914,12 @@ class MaidWindow(QWidget):
             return mode
         # 兼容旧配置 smooth_fall
         return "smooth" if self.anim_cfg.get("smooth_fall", True) else "direct"
+
+    def _get_idle_mode(self):
+        mode = str(self.anim_cfg.get("idle_mode", "")).strip().lower()
+        if mode in ("default", "sport", "lazy"):
+            return mode
+        return "default"
 
     def _allow_air_interaction(self):
         return self._get_fall_mode() == "none"

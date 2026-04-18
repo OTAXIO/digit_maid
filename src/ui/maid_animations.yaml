@@ -3,10 +3,12 @@
 # 2) loops:   每个 action 是否循环播放（true/false）
 # 3) base_dir: gif 所在目录（相对项目根目录）
 # 4) fall_mode: 下落模式（smooth=缓降飘落，direct=快速直落，none=不下坠）
-# 5) smooth_fall: 兼容旧配置，仅在未设置 fall_mode 时生效
+# 5) idle_mode: 待机模式（default=默认，sport=运动，lazy=懒惰）
+# 6) smooth_fall: 兼容旧配置，仅在未设置 fall_mode 时生效
 
 base_dir: resource/wisdel/皮肤素材/可用素材
 fall_mode: smooth
+idle_mode: default
 user_scale: 1.0
 smooth_fall: true
 
