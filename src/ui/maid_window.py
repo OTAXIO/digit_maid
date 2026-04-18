@@ -326,6 +326,10 @@ class MaidWindow(QWidget):
             return {}
 
     def play_action(self, action_name, force_loop=None, is_flipped=None):
+        # 隐藏态期间只允许维持 hide 动作；其余动作需等点击唤醒后再执行。
+        if self._edge_hidden and action_name != "hide":
+            return False
+
         # 预览调节期间禁止切到 idle，避免任何遗漏路径触发待机动作
         if self._custom_scale_adjusting and action_name == "idle":
             return False
