@@ -38,6 +38,8 @@ class MaidWindow(QWidget):
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
         self.root_dir = root_dir
         self.current_action = "idle"
+        self._edge_hidden = False
+        self._edge_hidden_side = None
 
         # 统一管理菜单可见状态与操作权限
         self.menu_controller = OptionMenuController()
@@ -145,10 +147,89 @@ class MaidWindow(QWidget):
         return bool(getattr(circular_menu, "isVisible", lambda: False)())
 
     def _operation_allowed(self, operation_name):
+        if self._edge_hidden:
+            return False
+
         controller = getattr(self, "menu_controller", None)
         if controller is None:
             return True
         return controller.allows(operation_name)
+
+    def _edge_hide_side_for_x(self, x=None, tolerance=2):
+        if x is None:
+            x = self.x()
+
+        screen_geo = self.screen().availableGeometry()
+        min_x = screen_geo.left()
+        max_x = screen_geo.right() - self.width()
+
+        if x <= min_x + tolerance:
+            return "left"
+        if x >= max_x - tolerance:
+            return "right"
+        return None
+
+    def _snap_to_horizontal_edge(self, side):
+        side = str(side).lower()
+        if side not in ("left", "right"):
+            return
+
+        screen_geo = self.screen().availableGeometry()
+        target_y = max(screen_geo.top(), min(self.y(), self._bottom_y_limit()))
+        if side == "left":
+            target_x = screen_geo.left()
+        else:
+            # QRect.right() 是包含端点，+1 才是视觉上的真正贴右边。
+            target_x = screen_geo.right() - self.width() + 1
+
+        self.move(target_x, target_y)
+
+    def _enter_edge_hidden_mode(self, side):
+        side = str(side).lower()
+        if side not in ("left", "right"):
+            return False
+
+        self._edge_hidden = True
+        self._edge_hidden_side = side
+        self._is_dragging = False
+        self._stop_inactivity_timer(reset_stage=True)
+        self.wander_timer.stop()
+        self._stop_fall()
+        self.dialogue_system.hide_dialogue()
+
+        actions = getattr(self, "maid_actions", None)
+        if actions is not None:
+            circular_menu = getattr(actions, "circular_menu", None)
+            if circular_menu is not None and getattr(circular_menu, "isVisible", lambda: False)():
+                circular_menu.close_menu()
+
+        self.menu_interact_mode = False
+        hide_flipped = side == "left"
+        if self.current_action != "hide" or getattr(self, "is_flipped", False) != hide_flipped:
+            if not self.play_action("hide", force_loop=True, is_flipped=hide_flipped):
+                self._edge_hidden = False
+                self._edge_hidden_side = None
+                return False
+
+        self._snap_to_horizontal_edge(side)
+        return True
+
+    def _wake_from_edge_hidden_mode(self):
+        if not self._edge_hidden:
+            return False
+
+        wake_from_left = self._edge_hidden_side == "left"
+        self._edge_hidden = False
+        self._edge_hidden_side = None
+
+        if not self._is_at_bottom_boundary() and not self._allow_air_interaction():
+            self._start_fall_to_bottom()
+            return True
+
+        self.play_action("idle", is_flipped=wake_from_left)
+        if self.current_action == "idle":
+            self._reset_inactivity_timer()
+        return True
 
     def initUI(self):
         # ... (保持不变)
@@ -577,6 +658,16 @@ class MaidWindow(QWidget):
                 self._on_action_finished()
 
     def _on_action_finished(self):
+        if self._edge_hidden:
+            self._stop_inactivity_timer(reset_stage=True)
+            self.wander_timer.stop()
+            hide_flipped = self._edge_hidden_side == "left"
+            if self.current_action != "hide":
+                self.play_action("hide", force_loop=True, is_flipped=hide_flipped)
+            elif self.current_movie is not None:
+                self.current_movie.start()
+            return
+
         if self._custom_scale_adjusting:
             self._stop_inactivity_timer(reset_stage=True)
             self.wander_timer.stop()
@@ -614,6 +705,10 @@ class MaidWindow(QWidget):
                     self.play_action("idle")
 
     def _on_wander_tick(self):
+        if self._edge_hidden:
+            self.wander_timer.stop()
+            return
+
         controller = getattr(self, "menu_controller", None)
         if controller is not None and not controller.policy.allow_wander:
             self.wander_timer.stop()
@@ -660,6 +755,11 @@ class MaidWindow(QWidget):
         self._start_inactivity_timer(15000) # 15秒以后进入水平move
 
     def _start_inactivity_timer(self, duration_ms):
+        if self._edge_hidden:
+            self._inactivity_deadline = None
+            self.inactivity_timer.stop()
+            return
+
         controller = getattr(self, "menu_controller", None)
         if controller is not None and not controller.policy.allow_idle_timer:
             self._inactivity_deadline = None
@@ -681,6 +781,11 @@ class MaidWindow(QWidget):
             self.inactivity_stage = 0
 
     def _on_inactivity_timeout(self):
+        if self._edge_hidden:
+            self._stop_inactivity_timer(reset_stage=True)
+            self.wander_timer.stop()
+            return
+
         if self._custom_scale_adjusting:
             self._stop_inactivity_timer(reset_stage=False)
             return
@@ -754,6 +859,10 @@ class MaidWindow(QWidget):
         self._is_falling = False
 
     def _start_fall_to_bottom(self):
+        if self._edge_hidden:
+            self._stop_fall()
+            return
+
         if not self._operation_allowed("allow_fall"):
             self._stop_fall()
             return
@@ -812,6 +921,10 @@ class MaidWindow(QWidget):
         self._fall_timer.start(24)
 
     def _on_fall_tick(self):
+        if self._edge_hidden:
+            self._stop_fall()
+            return
+
         if not self._operation_allowed("allow_fall"):
             self._stop_fall()
             return
@@ -879,6 +992,14 @@ class MaidWindow(QWidget):
         self.move(int(round(new_x)), int(round(self._fall_y)))
 
     def mousePressEvent(self, event):
+        if self._edge_hidden:
+            if event.button() == Qt.MouseButton.LeftButton:
+                self._wake_from_edge_hidden_mode()
+                event.accept()
+            else:
+                event.ignore()
+            return
+
         if self._custom_scale_adjusting:
             event.ignore()
             return
@@ -924,6 +1045,10 @@ class MaidWindow(QWidget):
             self.maid_actions.show_context_menu(event.globalPosition().toPoint())
 
     def mouseDoubleClickEvent(self, event):
+        if self._edge_hidden:
+            event.ignore()
+            return
+
         if self._custom_scale_adjusting:
             event.ignore()
             return
@@ -956,6 +1081,10 @@ class MaidWindow(QWidget):
             super().mouseDoubleClickEvent(event)
 
     def mouseMoveEvent(self, event):
+        if self._edge_hidden:
+            event.ignore()
+            return
+
         if self._custom_scale_adjusting:
             event.ignore()
             return
@@ -997,6 +1126,10 @@ class MaidWindow(QWidget):
                 self.move(new_x, new_y)
 
     def mouseReleaseEvent(self, event):
+        if self._edge_hidden:
+            event.ignore()
+            return
+
         if self._custom_scale_adjusting:
             event.ignore()
             return
@@ -1014,6 +1147,10 @@ class MaidWindow(QWidget):
 
             if getattr(self, '_is_dragging', False):
                 self._is_dragging = False
+                edge_side = self._edge_hide_side_for_x()
+                if edge_side is not None and self._enter_edge_hidden_mode(edge_side):
+                    return
+
                 if self._is_at_bottom_boundary():
                     # 到达底边后恢复 idle
                     if self.current_action in ("move", "sweat", "fly"):
@@ -1030,6 +1167,10 @@ class MaidWindow(QWidget):
                     self._reset_inactivity_timer()
 
     def wheelEvent(self, event):
+        if self._edge_hidden:
+            event.ignore()
+            return
+
         # 鼠标悬停在桌宠上滚轮缩放
         delta = event.angleDelta().y()
         if self.adjust_scale_by_wheel_delta(delta):
