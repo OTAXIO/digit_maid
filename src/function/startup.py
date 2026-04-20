@@ -108,12 +108,12 @@ def set_startup_enabled(enabled):
 
                 subprocess.run(["launchctl", "unload", plist_path], check=False, capture_output=True)
                 subprocess.run(["launchctl", "load", plist_path], check=False, capture_output=True)
-                return True, "已开启开机自启动（苹方）"
+                return True, "已开启开机自启动（macOS）"
 
             subprocess.run(["launchctl", "unload", plist_path], check=False, capture_output=True)
             if os.path.exists(plist_path):
                 os.remove(plist_path)
-            return True, "已关闭开机自启动（苹方）"
+            return True, "已关闭开机自启动（macOS）"
         except OSError as e:
             return False, f"设置开机自启动失败: {e}"
 

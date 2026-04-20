@@ -186,15 +186,12 @@ class CircularMenuWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
         
-        # Cover the whole screen
-        screen_geo = QApplication.primaryScreen().availableGeometry()
-        self.setGeometry(screen_geo)
-        
         self.center_pos = center_pos
         self.on_close_callback = on_close_callback
         # 菜单可随桌宠缩小，最小 0.4
         self.menu_scale = max(0.4, float(menu_scale))
         self.maid_widget = parent
+        self._sync_overlay_geometry()
 
         self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
         self.theme = load_dialog_theme()
@@ -217,6 +214,25 @@ class CircularMenuWidget(QWidget):
         self.inactivity_timer.start(15000)
         
         self._build_menu()
+
+    def _resolve_screen_geometry_for_point(self, global_point):
+        screen = QApplication.screenAt(global_point)
+        if screen is None and self.maid_widget is not None:
+            screen = self.maid_widget.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is None:
+            return QRect(0, 0, 1, 1)
+        return screen.availableGeometry()
+
+    def _sync_overlay_geometry(self):
+        target_geo = self._resolve_screen_geometry_for_point(self.center_pos)
+        if self.geometry() != target_geo:
+            self.setGeometry(target_geo)
+
+    def _center_pos_local(self):
+        geo = self.geometry()
+        return QPoint(self.center_pos.x() - geo.x(), self.center_pos.y() - geo.y())
 
     @staticmethod
     def _menu_scale_from_maid_scale(maid_scale):
@@ -249,6 +265,7 @@ class CircularMenuWidget(QWidget):
 
         self.menu_scale = new_scale
         self.center_pos = new_center
+        self._sync_overlay_geometry()
         self._build_menu()
         return True
 
@@ -330,7 +347,7 @@ class CircularMenuWidget(QWidget):
             R = base_r
         else:
             # 始终保持 180 度扇形，并根据可用空间自动选择朝向与半径。
-            screen_geo = QApplication.primaryScreen().availableGeometry()
+            screen_geo = self.geometry()
             top_space = self.center_pos.y() - screen_geo.top()
             bottom_space = screen_geo.bottom() - self.center_pos.y()
             left_space = self.center_pos.x() - screen_geo.left()
@@ -362,6 +379,8 @@ class CircularMenuWidget(QWidget):
 
             start_angle, sweep_angle, *_ = chosen
             angles = [start_angle + i * (sweep_angle / (n - 1)) for i in range(n)]
+
+        local_center = self._center_pos_local()
             
         for i, item in enumerate(display_items):
             is_special_btn = (item['label'] in ['返回', '退出', '<', '>'])
@@ -383,12 +402,12 @@ class CircularMenuWidget(QWidget):
             )
             
             # Target position
-            tar_x = self.center_pos.x() + R * math.cos(angles[i]) - btn.width() / 2
-            tar_y = self.center_pos.y() - R * math.sin(angles[i]) - btn.height() / 2
+            tar_x = local_center.x() + R * math.cos(angles[i]) - btn.width() / 2
+            tar_y = local_center.y() - R * math.sin(angles[i]) - btn.height() / 2
             
             # Start position (center)
-            start_x = self.center_pos.x() - btn.width() / 2
-            start_y = self.center_pos.y() - btn.height() / 2
+            start_x = local_center.x() - btn.width() / 2
+            start_y = local_center.y() - btn.height() / 2
             
             btn.move(int(start_x), int(start_y))
             

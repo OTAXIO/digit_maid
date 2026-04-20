@@ -38,6 +38,13 @@ def _acquire_single_instance_lock():
 
     return lock
 
+
+def _default_ui_font_family():
+    """Choose a UI font family by platform."""
+    if sys.platform == "darwin":
+        return "PingFang SC"
+    return "Microsoft YaHei"
+
 def main():
     """
     Digit Maid 应用程序入口点
@@ -45,7 +52,7 @@ def main():
     print(f"启动 Digit Maid... (Root: {project_root})")
     
     app = QApplication(sys.argv)
-    app.setFont(QFont("Microsoft YaHei"))
+    app.setFont(QFont(_default_ui_font_family()))
 
     icon_path = _resolve_resource_path("resource", "wisdel", "皮肤素材", "维什戴尔大人.png")
     if os.path.exists(icon_path):

@@ -238,6 +238,11 @@ class MaidWindow(QWidget):
             flags |= Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        if self.is_macos:
+            # 在 macOS 上避免 Tool 窗口因应用失焦而被系统自动隐藏。
+            always_show_attr = getattr(Qt.WidgetAttribute, "WA_MacAlwaysShowToolWindow", None)
+            if always_show_attr is not None:
+                self.setAttribute(always_show_attr, True)
         
         # 获取屏幕尺寸
         screen = QApplication.primaryScreen().availableGeometry()

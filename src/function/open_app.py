@@ -133,7 +133,7 @@ def open_application(app_name):
             except (FileNotFoundError, subprocess.CalledProcessError):
                 return f"找不到应用: {app_name}"
         else:
-            return "当前仅支持 Windows / 苹方 系统的简单应用启动"
+            return "当前仅支持 Windows / macOS 系统的简单应用启动"
             
     except Exception as e:
         return f"启动失败: {e}"
