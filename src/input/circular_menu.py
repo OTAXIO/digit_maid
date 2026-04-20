@@ -268,8 +268,11 @@ class CircularMenuWidget(QWidget):
         path_val = path_val.strip().strip("'\"")
         if not path_val:
             return None
+        # Accept both Windows and POSIX separators from YAML config.
+        path_val = os.path.normpath(path_val.replace("\\", "/"))
         if not os.path.isabs(path_val):
             path_val = os.path.join(self.root_dir, path_val)
+        path_val = os.path.normpath(path_val)
         return path_val if os.path.exists(path_val) else None
         
     def _build_menu(self):
@@ -279,7 +282,7 @@ class CircularMenuWidget(QWidget):
         self.buttons.clear()
         
         btn_half = max(14, int((80 if self.use_image_buttons else 70) * self.menu_scale / 2))
-        R = max(48, int(120 * self.menu_scale))
+        base_r = max(48, int(120 * self.menu_scale))
         
         # Separate special items from regular ones
         regular_items = []
@@ -324,57 +327,40 @@ class CircularMenuWidget(QWidget):
         n = len(display_items)
         if n == 1:
             angles = [math.pi / 2]
+            R = base_r
         else:
-            # 智能判断可用的角度范围
+            # 始终保持 180 度扇形，并根据可用空间自动选择朝向与半径。
             screen_geo = QApplication.primaryScreen().availableGeometry()
-            margin = R + btn_half + 10  # 半径 + 按钮半径 + 边距
-            
-            can_up = (self.center_pos.y() - screen_geo.top()) >= margin
-            can_down = (screen_geo.bottom() - self.center_pos.y()) >= margin
-            can_left = (self.center_pos.x() - screen_geo.left()) >= margin
-            can_right = (screen_geo.right() - self.center_pos.x()) >= margin
-            
-            if can_up and can_left and can_right:
-                # 默认情况：上方半圆 180° 到 0°
-                start_angle = math.pi
-                sweep_angle = -math.pi
-            elif not can_up and can_left and can_right:
-                # 靠上：下方半圆 180° 到 360° (左到右)
-                start_angle = math.pi
-                sweep_angle = math.pi
-            elif not can_left and can_up and can_down:
-                # 靠左：右方半圆 90° 到 -90° (上到下)
-                start_angle = math.pi / 2
-                sweep_angle = -math.pi
-            elif not can_right and can_up and can_down:
-                # 靠右：左方半圆 90° 到 270° (上到下)
-                start_angle = math.pi / 2
-                sweep_angle = math.pi
-            elif not can_up and not can_left:
-                # 左上角：右下方 0° 到 -90° (右到下)
-                start_angle = 0
-                sweep_angle = -math.pi / 2
-            elif not can_up and not can_right:
-                # 右上角：左下方 180° 到 270° (左到下)
-                start_angle = math.pi
-                sweep_angle = math.pi / 2
-            elif not can_down and not can_left:
-                # 左下角：右上方 90° 到 0° (上到右)
-                start_angle = math.pi / 2
-                sweep_angle = -math.pi / 2
-            elif not can_down and not can_right:
-                # 右下角：左上方 90° 到 180° (上到左)
-                start_angle = math.pi / 2
-                sweep_angle = math.pi / 2
-            elif not can_down and can_left and can_right:
-                # 靠下：上方半圆 180° 到 0° (与默认相同)
-                start_angle = math.pi
-                sweep_angle = -math.pi
+            top_space = self.center_pos.y() - screen_geo.top()
+            bottom_space = screen_geo.bottom() - self.center_pos.y()
+            left_space = self.center_pos.x() - screen_geo.left()
+            right_space = screen_geo.right() - self.center_pos.x()
+
+            # 每个方向都保持 180°，只改变起始角与方向。
+            # format: (start_angle, sweep_angle, radial_space, tangent_a, tangent_b)
+            orientations = [
+                (math.pi, -math.pi, top_space, left_space, right_space),          # 上半圆
+                (math.pi, math.pi, bottom_space, left_space, right_space),         # 下半圆
+                (math.pi / 2, -math.pi, right_space, top_space, bottom_space),     # 右半圆
+                (math.pi / 2, math.pi, left_space, top_space, bottom_space),       # 左半圆
+            ]
+
+            margin = btn_half + 10
+
+            def usable_radius(orientation):
+                _, _, radial, tangential_a, tangential_b = orientation
+                return min(radial, tangential_a, tangential_b) - margin
+
+            # 先选可完整容纳 base_r 的方向；若都不满足，退化到可用半径最大的方向。
+            fit_candidates = [o for o in orientations if usable_radius(o) >= base_r]
+            if fit_candidates:
+                chosen = max(fit_candidates, key=usable_radius)
+                R = base_r
             else:
-                # 兜底：上方半圆
-                start_angle = math.pi
-                sweep_angle = -math.pi
-                
+                chosen = max(orientations, key=usable_radius)
+                R = max(24, int(usable_radius(chosen)))
+
+            start_angle, sweep_angle, *_ = chosen
             angles = [start_angle + i * (sweep_angle / (n - 1)) for i in range(n)]
             
         for i, item in enumerate(display_items):
