@@ -497,8 +497,8 @@ class MaidActions:
             {'label': '不保存', 'action': lambda: self.do_circular_screenshot("none")}
         ]
         tools_sub_items = [
-            {'label': '截屏', 'action': screenshot_sub_items},
-            
+            {'label': 'VPN', 'action': lambda: self.do_open_app("v2rayN")},
+            {'label': '截屏', 'action': screenshot_sub_items},        
         ]
 
         current_mode = self._get_current_fall_mode()
@@ -514,8 +514,8 @@ class MaidActions:
         current_idle_mode = self._get_current_idle_mode()
         idle_mode_sub_items = [
             {
-                'label': label,
                 'text_color': "#e32e2e" if mode == current_idle_mode else 'white',
+                'label': label,
                 'action': lambda m=mode: self._set_idle_mode(m)
             }
             for mode, label in self.IDLE_MODE_LABELS.items()
@@ -553,12 +553,7 @@ class MaidActions:
         ]
         top_items = [
             {'label': 'APP', 'action': app_sub_items},
-<<<<<<< HEAD
-            {'label': 'VPN', 'action': lambda: self.do_open_app("v2rayN")},
-            {'label': 'TOOLS', 'action': tools_sub_items},
-=======
             {'label': 'TOOL', 'action': tools_sub_items},
->>>>>>> d9d8f6b (名字补丁)
             {'label': "设置", 'action': setting_label},
             {'label': '关闭', 'action': self.trigger_quit}
         ]
