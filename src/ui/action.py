@@ -553,8 +553,12 @@ class MaidActions:
         ]
         top_items = [
             {'label': 'APP', 'action': app_sub_items},
+<<<<<<< HEAD
             {'label': 'VPN', 'action': lambda: self.do_open_app("v2rayN")},
             {'label': 'TOOLS', 'action': tools_sub_items},
+=======
+            {'label': 'TOOL', 'action': tools_sub_items},
+>>>>>>> d9d8f6b (名字补丁)
             {'label': "设置", 'action': setting_label},
             {'label': '关闭', 'action': self.trigger_quit}
         ]
