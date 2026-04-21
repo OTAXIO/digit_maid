@@ -323,6 +323,12 @@ class MaidWindow(QWidget):
                         v = line.split(":", 1)[1].strip().lower()
                         cfg["animations"][current_action]["loop"] = (v == "true")
 
+            saved_idle_mode = str(
+                QSettings("DigitMaid", "DigitMaid").value("mode/idle_mode", "")
+            ).strip().lower()
+            if saved_idle_mode in ("default", "sport", "lazy"):
+                cfg["idle_mode"] = saved_idle_mode
+
             return cfg
         except Exception as e:
             print(f"读取动作配置失败: {e}")
