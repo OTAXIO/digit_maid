@@ -1,6 +1,6 @@
 ﻿from PyQt6.QtWidgets import QMenu, QApplication
 from PyQt6.QtGui import QAction, QActionGroup
-from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint
+from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint, QSettings
 import os
 from src.function import screen_shot, open_app, startup
 from src.function.open_app import load_app_paths
@@ -141,6 +141,9 @@ class MaidActions:
 
         if hasattr(self.parent, "anim_cfg") and isinstance(self.parent.anim_cfg, dict):
             self.parent.anim_cfg["idle_mode"] = mode
+
+        settings = QSettings("DigitMaid", "DigitMaid")
+        settings.setValue("mode/idle_mode", mode)
 
         # 切换待机模式后重置待机状态机，避免沿用旧模式的阶段与计时。
         if hasattr(self.parent, "wander_timer"):
@@ -495,6 +498,9 @@ class MaidActions:
             {'label': '存到默认', 'action': lambda: self.do_circular_screenshot("default")},
             {'label': '不保存', 'action': lambda: self.do_circular_screenshot("none")}
         ]
+        tools_sub_items = [
+            {'label': '截屏', 'action': screenshot_sub_items},
+        ]
 
         current_mode = self._get_current_fall_mode()
         fall_mode_sub_items = [
@@ -548,7 +554,7 @@ class MaidActions:
         ]
         top_items = [
             {'label': 'APP', 'action': app_sub_items},
-            {'label': '截图', 'action': screenshot_sub_items},
+            {'label': 'TOOLS', 'action': tools_sub_items},
             {'label': "设置", 'action': setting_label},
             {'label': '关闭', 'action': self.trigger_quit}
         ]
