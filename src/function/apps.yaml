@@ -2,21 +2,32 @@
 app_paths:
   计算器:
     - calc.exe
+    - /System/Applications/Calculator.app
+    - /Applications/Calculator.app
   记事本:
     - notepad.exe
+    - /System/Applications/TextEdit.app
+    - /Applications/TextEdit.app
   终端:
     - C:\WINDOWS\system32\cmd.exe
+    - /System/Applications/Utilities/Terminal.app
+    - /Applications/Utilities/Terminal.app
   网易云:
     - cloudmusic.exe
     - C:\Program Files (x86)\Netease\CloudMusic\cloudmusic.exe
     - C:\Program Files\Netease\CloudMusic\cloudmusic.exe
     - D:\Program Files (x86)\Netease\CloudMusic\cloudmusic.exe
     - C:\Netease\CloudMusic\cloudmusic.exe
+    - /Applications/NeteaseMusic.app
+    - /Applications/NetEaseMusic.app
+    - /Applications/网易云音乐.app
   鹰角启动:
     - E:\GAME\Hypergryph Launcher\Launcher.exe
     - C:\Program Files (x86)\Hypergryph Launcher\Launcher.exe
     - C:\Program Files\Hypergryph Launcher\Launcher.exe
+    - /Applications/明日方舟.app
   Steam:
     - C:\Program Files (x86)\Steam\steam.exe
     - C:\Program Files\Steam\steam.exe
     - E:\steam\steam.exe
+    - /Applications/Steam.app

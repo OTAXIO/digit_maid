@@ -198,8 +198,10 @@ class CustomChoiceDialog(QDialog):
             valid_paths = {}
             for state, p in [("normal", n_path), ("hover", h_path), ("pressed", p_path)]:
                 if p:
+                    p = os.path.normpath(p.replace("\\", "/"))
                     if not os.path.isabs(p):
                         p = os.path.join(root_dir, p)
+                    p = os.path.normpath(p)
                     if os.path.exists(p):
                         valid_paths[state] = p.replace("\\", "/")
                         

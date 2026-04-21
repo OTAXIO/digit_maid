@@ -186,15 +186,12 @@ class CircularMenuWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMouseTracking(True)
         
-        # Cover the whole screen
-        screen_geo = QApplication.primaryScreen().availableGeometry()
-        self.setGeometry(screen_geo)
-        
         self.center_pos = center_pos
         self.on_close_callback = on_close_callback
         # 菜单可随桌宠缩小，最小 0.4
         self.menu_scale = max(0.4, float(menu_scale))
         self.maid_widget = parent
+        self._sync_overlay_geometry()
 
         self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
         self.theme = load_dialog_theme()
@@ -217,6 +214,25 @@ class CircularMenuWidget(QWidget):
         self.inactivity_timer.start(15000)
         
         self._build_menu()
+
+    def _resolve_screen_geometry_for_point(self, global_point):
+        screen = QApplication.screenAt(global_point)
+        if screen is None and self.maid_widget is not None:
+            screen = self.maid_widget.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is None:
+            return QRect(0, 0, 1, 1)
+        return screen.availableGeometry()
+
+    def _sync_overlay_geometry(self):
+        target_geo = self._resolve_screen_geometry_for_point(self.center_pos)
+        if self.geometry() != target_geo:
+            self.setGeometry(target_geo)
+
+    def _center_pos_local(self):
+        geo = self.geometry()
+        return QPoint(self.center_pos.x() - geo.x(), self.center_pos.y() - geo.y())
 
     @staticmethod
     def _menu_scale_from_maid_scale(maid_scale):
@@ -249,6 +265,7 @@ class CircularMenuWidget(QWidget):
 
         self.menu_scale = new_scale
         self.center_pos = new_center
+        self._sync_overlay_geometry()
         self._build_menu()
         return True
 
@@ -268,8 +285,11 @@ class CircularMenuWidget(QWidget):
         path_val = path_val.strip().strip("'\"")
         if not path_val:
             return None
+        # Accept both Windows and POSIX separators from YAML config.
+        path_val = os.path.normpath(path_val.replace("\\", "/"))
         if not os.path.isabs(path_val):
             path_val = os.path.join(self.root_dir, path_val)
+        path_val = os.path.normpath(path_val)
         return path_val if os.path.exists(path_val) else None
         
     def _build_menu(self):
@@ -279,7 +299,7 @@ class CircularMenuWidget(QWidget):
         self.buttons.clear()
         
         btn_half = max(14, int((80 if self.use_image_buttons else 70) * self.menu_scale / 2))
-        R = max(48, int(120 * self.menu_scale))
+        base_r = max(48, int(120 * self.menu_scale))
         
         # Separate special items from regular ones
         regular_items = []
@@ -324,58 +344,43 @@ class CircularMenuWidget(QWidget):
         n = len(display_items)
         if n == 1:
             angles = [math.pi / 2]
+            R = base_r
         else:
-            # 智能判断可用的角度范围
-            screen_geo = QApplication.primaryScreen().availableGeometry()
-            margin = R + btn_half + 10  # 半径 + 按钮半径 + 边距
-            
-            can_up = (self.center_pos.y() - screen_geo.top()) >= margin
-            can_down = (screen_geo.bottom() - self.center_pos.y()) >= margin
-            can_left = (self.center_pos.x() - screen_geo.left()) >= margin
-            can_right = (screen_geo.right() - self.center_pos.x()) >= margin
-            
-            if can_up and can_left and can_right:
-                # 默认情况：上方半圆 180° 到 0°
-                start_angle = math.pi
-                sweep_angle = -math.pi
-            elif not can_up and can_left and can_right:
-                # 靠上：下方半圆 180° 到 360° (左到右)
-                start_angle = math.pi
-                sweep_angle = math.pi
-            elif not can_left and can_up and can_down:
-                # 靠左：右方半圆 90° 到 -90° (上到下)
-                start_angle = math.pi / 2
-                sweep_angle = -math.pi
-            elif not can_right and can_up and can_down:
-                # 靠右：左方半圆 90° 到 270° (上到下)
-                start_angle = math.pi / 2
-                sweep_angle = math.pi
-            elif not can_up and not can_left:
-                # 左上角：右下方 0° 到 -90° (右到下)
-                start_angle = 0
-                sweep_angle = -math.pi / 2
-            elif not can_up and not can_right:
-                # 右上角：左下方 180° 到 270° (左到下)
-                start_angle = math.pi
-                sweep_angle = math.pi / 2
-            elif not can_down and not can_left:
-                # 左下角：右上方 90° 到 0° (上到右)
-                start_angle = math.pi / 2
-                sweep_angle = -math.pi / 2
-            elif not can_down and not can_right:
-                # 右下角：左上方 90° 到 180° (上到左)
-                start_angle = math.pi / 2
-                sweep_angle = math.pi / 2
-            elif not can_down and can_left and can_right:
-                # 靠下：上方半圆 180° 到 0° (与默认相同)
-                start_angle = math.pi
-                sweep_angle = -math.pi
+            # 始终保持 180 度扇形，并根据可用空间自动选择朝向与半径。
+            screen_geo = self.geometry()
+            top_space = self.center_pos.y() - screen_geo.top()
+            bottom_space = screen_geo.bottom() - self.center_pos.y()
+            left_space = self.center_pos.x() - screen_geo.left()
+            right_space = screen_geo.right() - self.center_pos.x()
+
+            # 每个方向都保持 180°，只改变起始角与方向。
+            # format: (start_angle, sweep_angle, radial_space, tangent_a, tangent_b)
+            orientations = [
+                (math.pi, -math.pi, top_space, left_space, right_space),          # 上半圆
+                (math.pi, math.pi, bottom_space, left_space, right_space),         # 下半圆
+                (math.pi / 2, -math.pi, right_space, top_space, bottom_space),     # 右半圆
+                (math.pi / 2, math.pi, left_space, top_space, bottom_space),       # 左半圆
+            ]
+
+            margin = btn_half + 10
+
+            def usable_radius(orientation):
+                _, _, radial, tangential_a, tangential_b = orientation
+                return min(radial, tangential_a, tangential_b) - margin
+
+            # 先选可完整容纳 base_r 的方向；若都不满足，退化到可用半径最大的方向。
+            fit_candidates = [o for o in orientations if usable_radius(o) >= base_r]
+            if fit_candidates:
+                chosen = max(fit_candidates, key=usable_radius)
+                R = base_r
             else:
-                # 兜底：上方半圆
-                start_angle = math.pi
-                sweep_angle = -math.pi
-                
+                chosen = max(orientations, key=usable_radius)
+                R = max(24, int(usable_radius(chosen)))
+
+            start_angle, sweep_angle, *_ = chosen
             angles = [start_angle + i * (sweep_angle / (n - 1)) for i in range(n)]
+
+        local_center = self._center_pos_local()
             
         for i, item in enumerate(display_items):
             is_special_btn = (item['label'] in ['返回', '退出', '<', '>'])
@@ -397,12 +402,12 @@ class CircularMenuWidget(QWidget):
             )
             
             # Target position
-            tar_x = self.center_pos.x() + R * math.cos(angles[i]) - btn.width() / 2
-            tar_y = self.center_pos.y() - R * math.sin(angles[i]) - btn.height() / 2
+            tar_x = local_center.x() + R * math.cos(angles[i]) - btn.width() / 2
+            tar_y = local_center.y() - R * math.sin(angles[i]) - btn.height() / 2
             
             # Start position (center)
-            start_x = self.center_pos.x() - btn.width() / 2
-            start_y = self.center_pos.y() - btn.height() / 2
+            start_x = local_center.x() - btn.width() / 2
+            start_y = local_center.y() - btn.height() / 2
             
             btn.move(int(start_x), int(start_y))
             

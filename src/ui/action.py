@@ -291,9 +291,11 @@ class MaidActions:
         # 尝试应用 dialog_style.yaml 中的背景
         bg_path = theme.get("background", "")
         if bg_path:
+            bg_path = os.path.normpath(bg_path.replace("\\", "/"))
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
             if not os.path.isabs(bg_path):
                 bg_path = os.path.join(root_dir, bg_path)
+            bg_path = os.path.normpath(bg_path)
             
             if os.path.exists(bg_path):
                 bg_url = bg_path.replace("\\", "/")
@@ -691,6 +693,11 @@ class MaidActions:
             result = open_app.open_application(app_name)
             print(result)
             self.dialogue.show_message("打开软件", result)
+
+        if getattr(self.parent, "is_macos", False):
+            # 目标应用激活后做一次可见性兜底，避免桌宠被系统判定为隐藏。
+            self.parent.show()
+            QTimer.singleShot(250, self.parent.show)
 
     def toggle_startup(self, enabled=None):
         if enabled is None:
