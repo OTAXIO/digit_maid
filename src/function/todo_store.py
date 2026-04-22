@@ -101,9 +101,10 @@ def load_todo_items_by_date():
     try:
         with open(data_path, "r", encoding="utf-8") as f:
             payload = json.load(f)
-        normalized = _normalize_items(payload.get("items_by_date", {}))
-        if normalized:
-            return normalized
+        raw_items = payload.get("items_by_date", {})
+        if isinstance(raw_items, dict):
+            # 文件存在时允许返回空字典，避免用户清空待办后被默认模板覆盖。
+            return _normalize_items(raw_items)
     except Exception:
         pass
 

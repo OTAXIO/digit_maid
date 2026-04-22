@@ -22,8 +22,10 @@ circular_button_mode: "image"
 
 # 圆形菜单图片按钮路径（相对项目根目录或绝对路径）
 # 普通选项按钮使用 select；返回/退出/翻页按钮使用 quit
+# 顶层“关闭”按钮可单独使用 off
 circular_btn_select: "resource\\button\\select.png"
 circular_btn_quit: "resource\\button\\quit.png"
+circular_btn_off: "resource\\button\\off.png"
 
 background: "resource\\button\\background.jpg"
 

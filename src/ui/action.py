@@ -87,7 +87,6 @@ class MaidActions:
         if self._is_todo_panel_visible():
             self._set_todo_panel_open_state(True)
             self.parent.menu_interact_mode = True
-            self.todo_panel.reload_data()
             self.todo_panel.raise_()
             self.todo_panel.activateWindow()
             return True
@@ -96,7 +95,6 @@ class MaidActions:
             self.todo_panel = TodoPanel(on_close_callback=self.on_todo_panel_closed, parent=self.parent)
         else:
             self.todo_panel.on_close_callback = self.on_todo_panel_closed
-            self.todo_panel.reload_data()
 
         if hasattr(self.parent, "_stop_inactivity_timer"):
             self.parent._stop_inactivity_timer(reset_stage=True)

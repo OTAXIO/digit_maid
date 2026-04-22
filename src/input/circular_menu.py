@@ -198,6 +198,7 @@ class CircularMenuWidget(QWidget):
         self.use_image_buttons = self.theme.get("circular_button_mode", "default").lower() == "image"
         self.select_btn_path = self._resolve_theme_path(self.theme.get("circular_btn_select", ""))
         self.quit_btn_path = self._resolve_theme_path(self.theme.get("circular_btn_quit", ""))
+        self.off_btn_path = self._resolve_theme_path(self.theme.get("circular_btn_off", ""))
         
         self.history = [] # Stack of (items, page_idx)
         self.suppress_auto_back = False
@@ -387,7 +388,9 @@ class CircularMenuWidget(QWidget):
             text_color = item.get('text_color', 'white')
             icon_path = None
             if self.use_image_buttons:
-                if is_special_btn:
+                if item['label'] == '关闭':
+                    icon_path = self.off_btn_path or self.quit_btn_path or self.select_btn_path
+                elif is_special_btn:
                     icon_path = self.quit_btn_path
                 else:
                     icon_path = self.select_btn_path

@@ -1,8 +1,11 @@
 from datetime import date
+import os
 
-from PyQt6.QtCore import QDate, QEvent, QPoint, QRect, Qt, QPropertyAnimation
-from PyQt6.QtGui import QColor, QFont, QTextCharFormat
+from PyQt6.QtCore import QDate, QEvent, QPoint, QRect, QSize, Qt, QTimer, QPropertyAnimation
+from PyQt6.QtGui import QColor, QFont, QIcon, QTextCharFormat
 from PyQt6.QtWidgets import (
+    QAbstractItemDelegate,
+    QAbstractItemView,
     QApplication,
     QCalendarWidget,
     QFrame,
@@ -32,10 +35,13 @@ class TodoPanel(QWidget):
         self._drag_offset = QPoint()
         self._drag_handles = []
         self._fold_anim = None
+        self._editing_index = None
+        self._suppress_item_changed = False
 
         self.expanded_width = 860
         self.collapsed_width = 300
         self.panel_height = 520
+        self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -60,7 +66,7 @@ class TodoPanel(QWidget):
             """
             QFrame#todo_card {
                 background-color: #ffffff;
-                border: 4px solid #ff2d20;
+                border: 4px solid #c41c1c;
                 border-radius: 18px;
             }
             QFrame#todo_card * {
@@ -94,19 +100,19 @@ class TodoPanel(QWidget):
                 max-height: 30px;
                 border: none;
                 border-radius: 15px;
-                background-color: #ff2d20;
+                background-color: #c41c1c;
                 color: white;
                 font-size: 17px;
                 font-weight: 800;
             }
             QPushButton#close_btn:hover {
-                background-color: #ff4b3f;
+                background-color: #c41c1c;
             }
             QPushButton#close_btn:pressed {
-                background-color: #d82217;
+                background-color: #c41c1c;
             }
             QPushButton#expand_btn {
-                border: 2px solid #ff2d20;
+                border: 2px solid #c41c1c;
                 border-radius: 10px;
                 background-color: #ffffff;
                 color: #5f3d37;
@@ -115,11 +121,11 @@ class TodoPanel(QWidget):
                 font-weight: 700;
             }
             QPushButton#expand_btn:hover {
-                background-color: #fff6f5;
+                background-color: #c41c1c;
             }
             QListWidget {
                 background-color: #ffffff;
-                border: 2px solid #ffd2cd;
+                border: 2px solid #c41c1c;
                 border-radius: 12px;
                 padding: 6px;
                 font-size: 13px;
@@ -130,31 +136,31 @@ class TodoPanel(QWidget):
                 border-radius: 8px;
             }
             QListWidget::item:selected {
-                background-color: #ffd9d2;
+                background-color: #c41c1c;
                 color: #2f2220;
             }
             QLineEdit {
                 background-color: #ffffff;
-                border: 2px solid #ffd2cd;
+                border: 2px solid #c41c1c;
                 border-radius: 10px;
                 padding: 7px 9px;
                 color: #2f2220;
                 font-size: 13px;
             }
             QLineEdit:focus {
-                border: 2px solid #ff6a5f;
+                border: 2px solid #c41c1c;
             }
-            QPushButton#todo_btn {
-                border: 2px solid #ff2d20;
-                border-radius: 10px;
-                background-color: #ffffff;
-                color: #5f3d37;
-                padding: 6px 10px;
-                font-size: 12px;
-                font-weight: 700;
+            QPushButton#icon_action_btn {
+                min-width: 34px;
+                max-width: 34px;
+                min-height: 34px;
+                max-height: 34px;
+                border: none;
+                border-radius: 8px;
+                background: transparent;
             }
-            QPushButton#todo_btn:hover {
-                background-color: #fff6f5;
+            QPushButton#icon_action_btn:hover {
+                background-color: rgba(196, 28, 28, 30);
             }
             QCalendarWidget {
                 background-color: #ffffff;
@@ -248,32 +254,40 @@ class TodoPanel(QWidget):
         left_layout.addWidget(self.left_title)
 
         self.today_list = QListWidget(left_section)
+        self.today_list.setViewportMargins(34, 0, 0, 0)
+        self.today_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.today_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
         self.today_list.itemClicked.connect(self._on_today_item_selected)
+        self.today_list.itemChanged.connect(self._on_today_item_changed)
+        self.today_list.itemDelegate().closeEditor.connect(self._on_today_editor_closed)
+        self.today_list.itemSelectionChanged.connect(self._position_selected_delete_button)
+        self.today_list.verticalScrollBar().valueChanged.connect(self._position_selected_delete_button)
+        self.today_list.horizontalScrollBar().valueChanged.connect(self._position_selected_delete_button)
+        self.today_list.viewport().installEventFilter(self)
         left_layout.addWidget(self.today_list, 1)
 
-        self.todo_input = QLineEdit(left_section)
-        self.todo_input.setPlaceholderText("输入当日待办，回车可直接新增")
-        self.todo_input.returnPressed.connect(self._add_today_item)
-        left_layout.addWidget(self.todo_input)
+        self.delete_btn = QPushButton("", self.today_list)
+        self.delete_btn.setObjectName("icon_action_btn")
+        self.delete_btn.setToolTip("删除当前选中事项")
+        self.delete_btn.clicked.connect(self._delete_selected_item)
+        self.delete_btn.setFixedSize(24, 24)
+        self.delete_btn.hide()
+        self._apply_icon_button(self.delete_btn, "delete.png")
 
         input_action_row = QHBoxLayout()
         input_action_row.setSpacing(8)
 
-        add_btn = QPushButton("新增", left_section)
-        add_btn.setObjectName("todo_btn")
-        add_btn.clicked.connect(self._add_today_item)
-        input_action_row.addWidget(add_btn)
+        self.todo_input = QLineEdit(left_section)
+        self.todo_input.setPlaceholderText("输入当日待办，回车可直接上传")
+        self.todo_input.returnPressed.connect(self._submit_todo_input)
+        input_action_row.addWidget(self.todo_input, 1)
 
-        update_btn = QPushButton("修改", left_section)
-        update_btn.setObjectName("todo_btn")
-        update_btn.clicked.connect(self._update_today_item)
-        input_action_row.addWidget(update_btn)
-
-        delete_btn = QPushButton("删除", left_section)
-        delete_btn.setObjectName("todo_btn")
-        delete_btn.clicked.connect(self._delete_today_item)
-        input_action_row.addWidget(delete_btn)
+        self.upload_btn = QPushButton("", left_section)
+        self.upload_btn.setObjectName("icon_action_btn")
+        self.upload_btn.setToolTip("上传新增事项")
+        self.upload_btn.clicked.connect(self._submit_todo_input)
+        self._apply_icon_button(self.upload_btn, "upload.png")
+        input_action_row.addWidget(self.upload_btn)
 
         left_layout.addLayout(input_action_row)
 
@@ -380,6 +394,61 @@ class TodoPanel(QWidget):
     def _persist_items(self):
         return save_todo_items_by_date(self.items_by_date)
 
+    def _resolve_button_icon(self, filename):
+        icon_path = os.path.join(self.root_dir, "resource", "button", filename)
+        return icon_path if os.path.exists(icon_path) else None
+
+    def _apply_icon_button(self, button, filename):
+        icon_path = self._resolve_button_icon(filename)
+        if icon_path:
+            button.setText("")
+            button.setIcon(QIcon(icon_path))
+            button.setIconSize(QSize(20, 20))
+            return
+
+        button.setText(filename.split(".")[0])
+
+    def _clear_editing_state(self, clear_input=False, clear_selection=True):
+        self._editing_index = None
+        if clear_selection:
+            self.today_list.clearSelection()
+            self.today_list.setCurrentRow(-1)
+        self._position_selected_delete_button()
+        if clear_input:
+            self.todo_input.clear()
+
+    def _position_selected_delete_button(self):
+        if not hasattr(self, "delete_btn"):
+            return
+
+        today_items = self.items_by_date.get(self._selected_date_key(), [])
+        selected_items = self.today_list.selectedItems()
+        if not selected_items:
+            self.delete_btn.hide()
+            return
+
+        item = selected_items[0]
+        current_row = self.today_list.row(item)
+        if current_row < 0 or current_row >= len(today_items):
+            self.delete_btn.hide()
+            return
+
+        rect = self.today_list.visualItemRect(item)
+        if not rect.isValid() or rect.height() <= 0:
+            self.delete_btn.hide()
+            return
+
+        viewport_geo = self.today_list.viewport().geometry()
+        if rect.bottom() < 0 or rect.top() > viewport_geo.height():
+            self.delete_btn.hide()
+            return
+
+        x = max(4, viewport_geo.left() - self.delete_btn.width() - 4)
+        y = viewport_geo.top() + rect.top() + max(0, (rect.height() - self.delete_btn.height()) // 2)
+        self.delete_btn.move(x, y)
+        self.delete_btn.raise_()
+        self.delete_btn.show()
+
     def _set_status_text(self, text):
         self.subtitle_label.setText(text)
 
@@ -396,62 +465,44 @@ class TodoPanel(QWidget):
         selected = self._selected_date_qdate()
         self.left_title.setText(f"每日任务 ({selected.toString('yyyy-MM-dd')})")
         self.todo_input.setPlaceholderText(
-            f"输入 {selected.toString('MM-dd')} 待办，回车可直接新增"
+            f"输入 {selected.toString('MM-dd')} 待办，回车可直接上传"
         )
 
-    def _selected_today_index(self):
-        index = self.today_list.currentRow()
-        today_items = self.items_by_date.get(self._selected_date_key(), [])
-        if index < 0 or index >= len(today_items):
-            return -1
-        return index
-
-    def _add_today_item(self):
+    def _submit_todo_input(self):
         text = self.todo_input.text().strip()
         if not text:
-            self._set_status_text("请输入待办内容后再新增")
+            self._set_status_text("请输入待办内容")
             return
 
         today_items = self.items_by_date.setdefault(self._selected_date_key(), [])
         today_items.append(text)
+        status_text = "已新增事项"
+
         self.todo_input.clear()
         self._persist_items()
         self._refresh_today_list()
         self._refresh_calendar_marks()
         self._refresh_month_list()
-        self.today_list.setCurrentRow(len(today_items) - 1)
-        self._set_status_text("已新增今日待办")
+        self._set_status_text(status_text)
+        self._clear_editing_state(clear_input=False)
 
-    def _update_today_item(self):
-        index = self._selected_today_index()
-        if index < 0:
-            self._set_status_text("请先在今日待办中选中要修改的项")
-            return
-
-        text = self.todo_input.text().strip()
-        if not text:
-            self._set_status_text("请输入新的待办内容")
-            return
-
+    def _delete_selected_item(self):
         today_items = self.items_by_date.get(self._selected_date_key(), [])
-        today_items[index] = text
-        self._persist_items()
-        self._refresh_today_list()
-        self._refresh_calendar_marks()
-        self._refresh_month_list()
-        self.today_list.setCurrentRow(index)
-        self._set_status_text("已修改今日待办")
+        if not today_items:
+            self._clear_editing_state(clear_input=True)
+            return
 
-    def _delete_today_item(self):
-        index = self._selected_today_index()
-        if index < 0:
-            self._set_status_text("请先在今日待办中选中要删除的项")
+        selected_items = self.today_list.selectedItems()
+        if selected_items:
+            index = self.today_list.row(selected_items[0])
+        else:
+            index = self.today_list.currentRow()
+
+        if index is None or index < 0 or index >= len(today_items):
+            self._set_status_text("请先点击一条事项后再删除")
             return
 
         today_key = self._selected_date_key()
-        today_items = self.items_by_date.get(today_key, [])
-        if not today_items:
-            return
 
         today_items.pop(index)
         if not today_items:
@@ -462,13 +513,73 @@ class TodoPanel(QWidget):
         self._refresh_today_list()
         self._refresh_calendar_marks()
         self._refresh_month_list()
-        self._set_status_text("已删除今日待办")
+        self._clear_editing_state(clear_input=True)
+        self._set_status_text("已删除事项")
 
     def _on_today_item_selected(self, item):
         index = self.today_list.row(item)
         today_items = self.items_by_date.get(self._selected_date_key(), [])
         if 0 <= index < len(today_items):
-            self.todo_input.setText(today_items[index])
+            self._editing_index = index
+            self._position_selected_delete_button()
+            self.today_list.editItem(item)
+            QTimer.singleShot(0, self._bind_today_inline_editor)
+            self._set_status_text("已进入列表内编辑，回车可保存")
+
+    def _bind_today_inline_editor(self):
+        editor = self.today_list.findChild(QLineEdit)
+        if editor is None:
+            return
+
+        try:
+            editor.returnPressed.disconnect(self._on_today_editor_return_pressed)
+        except TypeError:
+            pass
+        editor.returnPressed.connect(self._on_today_editor_return_pressed)
+
+    def _on_today_editor_return_pressed(self):
+        self._finish_today_inline_edit(save=True, clear_selection=True)
+
+    def _finish_today_inline_edit(self, save=True, clear_selection=True):
+        editor = self.today_list.findChild(QLineEdit)
+        if editor is not None:
+            delegate = self.today_list.itemDelegate()
+            if save:
+                delegate.commitData.emit(editor)
+            delegate.closeEditor.emit(editor, QAbstractItemDelegate.EndEditHint.NoHint)
+
+        self._clear_editing_state(clear_input=False, clear_selection=clear_selection)
+        self._set_status_text("已退出编辑模式")
+
+    def _on_today_item_changed(self, item):
+        if self._suppress_item_changed:
+            return
+
+        index = self.today_list.row(item)
+        today_items = self.items_by_date.get(self._selected_date_key(), [])
+        if index < 0 or index >= len(today_items):
+            return
+
+        new_text = item.text().strip()
+        if not new_text:
+            self._suppress_item_changed = True
+            item.setText(today_items[index])
+            self._suppress_item_changed = False
+            self._set_status_text("待办内容不能为空")
+            return
+
+        if new_text == today_items[index]:
+            return
+
+        today_items[index] = new_text
+        self._persist_items()
+        self._refresh_calendar_marks()
+        self._refresh_month_list()
+        self._set_status_text("已保存修改")
+
+    def _on_today_editor_closed(self, *_):
+        self._editing_index = None
+        self._position_selected_delete_button()
 
     def _today_key(self):
         return date.today().isoformat()
@@ -493,11 +604,20 @@ class TodoPanel(QWidget):
             placeholder = QListWidgetItem("该日期暂无待办")
             placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
             self.today_list.addItem(placeholder)
-            self.today_list.clearSelection()
+            self._clear_editing_state(clear_input=True)
             return
 
-        for index, task in enumerate(today_items, start=1):
-            self.today_list.addItem(f"{index}. {task}")
+        self._suppress_item_changed = True
+        for task in today_items:
+            item = QListWidgetItem(task)
+            item.setFlags(
+                Qt.ItemFlag.ItemIsEnabled
+                | Qt.ItemFlag.ItemIsSelectable
+                | Qt.ItemFlag.ItemIsEditable
+            )
+            self.today_list.addItem(item)
+        self._suppress_item_changed = False
+        self._position_selected_delete_button()
 
     def _refresh_month_caption(self):
         year = self.calendar.yearShown()
@@ -595,6 +715,7 @@ class TodoPanel(QWidget):
 
     def _on_calendar_selection_changed(self):
         selected = self.calendar.selectedDate()
+        self._clear_editing_state(clear_input=True)
         self._sync_daily_section_caption()
         self._refresh_today_list()
         self._refresh_calendar_marks()
@@ -602,6 +723,7 @@ class TodoPanel(QWidget):
 
     def reload_data(self):
         self.items_by_date = load_todo_items_by_date()
+        self._clear_editing_state(clear_input=True)
         self._refresh_today_list()
         self._refresh_calendar_marks()
         self._refresh_month_caption()
@@ -626,6 +748,14 @@ class TodoPanel(QWidget):
         self._allow_close = False
 
     def eventFilter(self, obj, event):
+        if obj is self.today_list.viewport():
+            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                pos = event.position().toPoint()
+                if self.today_list.itemAt(pos) is None:
+                    editor = self.today_list.findChild(QLineEdit)
+                    if editor is not None:
+                        self._finish_today_inline_edit(save=True, clear_selection=True)
+
         if obj in self._drag_handles:
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 self._dragging = True
