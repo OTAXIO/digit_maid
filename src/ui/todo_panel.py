@@ -204,6 +204,17 @@ class TodoPanel(QWidget):
                 selection-color: #5b4300;
                 outline: 0;
             }
+            /* 新增：强化日历所有子部件背景为白色 */
+            QCalendarWidget QAbstractItemView {
+                background-color: #ffffff;
+                alternate-background-color: #ffffff;
+            }
+            QCalendarWidget QWidget#qt_calendar_navigationbar {
+                background-color: #ffffff;
+            }
+            QCalendarWidget QToolButton {
+                background-color: transparent;
+            }
             """
         )
 
@@ -268,7 +279,7 @@ class TodoPanel(QWidget):
 
         self.delete_btn = QPushButton("", self.today_list)
         self.delete_btn.setObjectName("icon_action_btn")
-        self.delete_btn.setToolTip("删除当前选中事项")
+        # self.delete_btn.setToolTip("删除当前选中事项")
         self.delete_btn.clicked.connect(self._delete_selected_item)
         self.delete_btn.setFixedSize(24, 24)
         self.delete_btn.hide()
@@ -278,7 +289,7 @@ class TodoPanel(QWidget):
         input_action_row.setSpacing(8)
 
         self.todo_input = QLineEdit(left_section)
-        self.todo_input.setPlaceholderText("输入当日待办，回车可直接上传")
+        self.todo_input.setPlaceholderText("输入当日待办")
         self.todo_input.returnPressed.connect(self._submit_todo_input)
         input_action_row.addWidget(self.todo_input, 1)
 
@@ -465,7 +476,7 @@ class TodoPanel(QWidget):
         selected = self._selected_date_qdate()
         self.left_title.setText(f"每日任务 ({selected.toString('yyyy-MM-dd')})")
         self.todo_input.setPlaceholderText(
-            f"输入 {selected.toString('MM-dd')} 待办，回车可直接上传"
+            f"输入 {selected.toString('MM-dd')} 待办"
         )
 
     def _submit_todo_input(self):
@@ -524,7 +535,7 @@ class TodoPanel(QWidget):
             self._position_selected_delete_button()
             self.today_list.editItem(item)
             QTimer.singleShot(0, self._bind_today_inline_editor)
-            self._set_status_text("已进入列表内编辑，回车可保存")
+            self._set_status_text("已进入列表内编辑")
 
     def _bind_today_inline_editor(self):
         editor = self.today_list.findChild(QLineEdit)
@@ -660,6 +671,7 @@ class TodoPanel(QWidget):
 
         out_month_format = QTextCharFormat()
         out_month_format.setBackground(QColor("#f1f1f1"))
+        out_month_format.setForeground(QColor("#2f2220"))
 
         for idx in range(42):
             qdate = grid_start.addDays(idx)
@@ -670,6 +682,7 @@ class TodoPanel(QWidget):
 
         month_light_format = QTextCharFormat()
         month_light_format.setBackground(QColor("#fff1ef"))
+        month_light_format.setForeground(QColor("#2f2220"))
 
         for day in range(1, day_count + 1):
             qdate = QDate(shown_year, shown_month, day)
@@ -678,6 +691,7 @@ class TodoPanel(QWidget):
 
         task_format = QTextCharFormat()
         task_format.setBackground(QColor("#ffcdc8"))
+        task_format.setForeground(QColor("#2f2220"))
 
         for date_key, tasks in self.items_by_date.items():
             if not tasks:
@@ -698,6 +712,7 @@ class TodoPanel(QWidget):
         if today.year() == shown_year and today.month() == shown_month:
             today_format = QTextCharFormat()
             today_format.setBackground(QColor("#ff9a91"))
+            today_format.setForeground(QColor("#2f2220"))
             self.calendar.setDateTextFormat(today, today_format)
             self._marked_dates.append(today)
 
@@ -705,6 +720,7 @@ class TodoPanel(QWidget):
         if selected.isValid():
             selected_format = QTextCharFormat()
             selected_format.setBackground(QColor("#ffe36e"))
+            selected_format.setForeground(QColor("#2f2220"))
             self.calendar.setDateTextFormat(selected, selected_format)
             self._marked_dates.append(selected)
 

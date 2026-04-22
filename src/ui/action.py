@@ -85,8 +85,6 @@ class MaidActions:
             return False
 
         if self._is_todo_panel_visible():
-            self._set_todo_panel_open_state(True)
-            self.parent.menu_interact_mode = True
             self.todo_panel.raise_()
             self.todo_panel.activateWindow()
             return True
@@ -96,17 +94,6 @@ class MaidActions:
         else:
             self.todo_panel.on_close_callback = self.on_todo_panel_closed
 
-        if hasattr(self.parent, "_stop_inactivity_timer"):
-            self.parent._stop_inactivity_timer(reset_stage=True)
-        if hasattr(self.parent, "wander_timer"):
-            self.parent.wander_timer.stop()
-        if getattr(self.parent, "_is_falling", False) and hasattr(self.parent, "_stop_fall"):
-            self.parent._stop_fall()
-
-        self.parent.menu_interact_mode = True
-        self._set_todo_panel_open_state(True)
-        self.parent.play_action("interact", force_loop=True)
-
         self._position_todo_panel(self.todo_panel)
         self.todo_panel.show()
         self.todo_panel.raise_()
@@ -115,15 +102,6 @@ class MaidActions:
 
     def on_todo_panel_closed(self):
         self._set_todo_panel_open_state(False)
-
-        controller = getattr(self.parent, "menu_controller", None)
-        if controller is not None and controller.is_menu_open:
-            self.parent.menu_interact_mode = True
-            self.parent.play_action("interact", force_loop=True)
-            return
-
-        self.parent.menu_interact_mode = False
-        self.parent.play_action("idle")
         if hasattr(self.parent, "force_on_top"):
             self.parent.force_on_top()
 
@@ -174,6 +152,10 @@ class MaidActions:
             self.parent.anim_cfg["fall_mode"] = mode
             self.parent.anim_cfg["smooth_fall"] = (mode == "smooth")
 
+        # 新增：将当前下落模式保存到 QSettings，实现重启后记忆
+        settings = QSettings("DigitMaid", "DigitMaid")
+        settings.setValue("mode/fall_mode", mode)
+
         if mode == "none" and getattr(self.parent, "_is_falling", False):
             if hasattr(self.parent, "_stop_fall"):
                 self.parent._stop_fall()
@@ -181,7 +163,6 @@ class MaidActions:
 
         self.dialogue.show_message("下落模式", f"已切换为: {self.FALL_MODE_LABELS[mode]}")
         return True
-
     def _get_current_idle_mode(self):
         anim_cfg = getattr(self.parent, "anim_cfg", {}) or {}
         mode = str(anim_cfg.get("idle_mode", "")).strip().lower()
@@ -342,10 +323,6 @@ class MaidActions:
         return max(0.4, mapped)
 
     def show_context_menu(self, global_pos):
-        if self._is_todo_panel_visible() or getattr(self.parent, "_todo_panel_open", False):
-            self.show_todo_panel()
-            return
-
         # 拦截：如果气泡菜单已经存在并且开着，重复右击则关闭它（相当于开关切换）
         if hasattr(self, "circular_menu") and self.circular_menu is not None:
             if getattr(self.circular_menu, "isVisible", lambda: False)():
@@ -561,11 +538,6 @@ class MaidActions:
                     self.parent.force_on_top()
                 return
 
-            if self._is_todo_panel_visible() or getattr(self.parent, "_todo_panel_open", False):
-                self.parent.menu_interact_mode = True
-                self.parent.play_action("interact", force_loop=True)
-                return
-
             # 阻塞调用结束，手动恢复桌宠的状态
             self.parent.menu_interact_mode = False
             self.parent.play_action("idle")
@@ -681,11 +653,6 @@ class MaidActions:
             self.parent.play_action("interact", force_loop=True)
             if hasattr(self.parent, "force_on_top"):
                 self.parent.force_on_top()
-            return
-
-        if self._is_todo_panel_visible() or getattr(self.parent, "_todo_panel_open", False):
-            self.parent.menu_interact_mode = True
-            self.parent.play_action("interact", force_loop=True)
             return
 
         # 菜单关闭后恢复桌宠状态
