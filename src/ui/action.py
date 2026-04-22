@@ -260,6 +260,15 @@ class MaidActions:
             self.dialogue.show_message("大小调整", detail or "调整大小失败")
         return ok
 
+    def start_keyboard_control(self):
+        if hasattr(self.parent, "start_keyboard_control_mode"):
+            ok, detail = self.parent.start_keyboard_control_mode()
+        else:
+            ok, detail = False, "当前窗口不支持键盘控制移动"
+
+        self.dialogue.show_message("控制移动", detail)
+        return ok
+
     def _set_custom_maid_scale(self):
         return self._start_custom_scale_adjustment()
 
@@ -437,10 +446,16 @@ class MaidActions:
             app_menu.addAction(action)
 
         menu.addSeparator()
-        # 截图/识别屏幕
+
+        tool_menu = menu.addMenu("TOOL")
+
         action_screenshot = QAction('截图', self.parent)
         action_screenshot.triggered.connect(self.do_screenshot)
-        menu.addAction(action_screenshot)
+        tool_menu.addAction(action_screenshot)
+
+        action_keyboard_control = QAction('控制移动', self.parent)
+        action_keyboard_control.triggered.connect(self.start_keyboard_control)
+        tool_menu.addAction(action_keyboard_control)
 
         action_todo = QAction('待办', self.parent)
         action_todo.triggered.connect(self.show_todo_panel)
@@ -651,10 +666,18 @@ class MaidActions:
             {'label': '待机模式', 'action': idle_mode_sub_items},
             {'label': '关闭自启动' if startup.is_startup_enabled() else '开启自启动', 'action': self.toggle_startup},
         ]
+        tools_sub_items = [
+            {'label': '截屏', 'action': screenshot_sub_items},
+            {'label': '控制移动', 'action': self.start_keyboard_control},
+        ]
+
         top_items = [
             {'label': 'APP', 'action': app_sub_items},
             {'label': 'TOOL', 'action': tools_sub_items},
+<<<<<<< Updated upstream
             {'label': '待办', 'action': self.show_todo_panel},
+=======
+>>>>>>> Stashed changes
             {'label': "设置", 'action': setting_label},
             {'label': '关闭', 'action': self.trigger_quit}
         ]

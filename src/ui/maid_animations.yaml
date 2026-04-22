@@ -7,8 +7,12 @@
 # 6) smooth_fall: 兼容旧配置，仅在未设置 fall_mode 时生效
 
 base_dir: resource/wisdel/皮肤素材/可用素材
+<<<<<<< Updated upstream
 fall_mode: smooth
 idle_mode: default
+=======
+fall_mode: direct
+>>>>>>> Stashed changes
 user_scale: 1.0
 smooth_fall: true
 
