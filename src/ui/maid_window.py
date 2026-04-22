@@ -328,6 +328,15 @@ class MaidWindow(QWidget):
             ).strip().lower()
             if saved_idle_mode in ("default", "sport", "lazy"):
                 cfg["idle_mode"] = saved_idle_mode
+            
+            # 新增：读取上次保存的 fall_mode 并覆盖
+            saved_fall_mode = str(
+                QSettings("DigitMaid", "DigitMaid").value("mode/fall_mode", "")
+            ).strip().lower()
+            if saved_fall_mode in ("smooth", "direct", "none"):
+                cfg["fall_mode"] = saved_fall_mode
+                # 同时更新 smooth_fall 字段以保持兼容性
+                cfg["smooth_fall"] = (saved_fall_mode == "smooth")
 
             return cfg
         except Exception as e:

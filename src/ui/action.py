@@ -88,6 +88,10 @@ class MaidActions:
             self.parent.anim_cfg["fall_mode"] = mode
             self.parent.anim_cfg["smooth_fall"] = (mode == "smooth")
 
+        # 新增：将当前下落模式保存到 QSettings，实现重启后记忆
+        settings = QSettings("DigitMaid", "DigitMaid")
+        settings.setValue("mode/fall_mode", mode)
+
         if mode == "none" and getattr(self.parent, "_is_falling", False):
             if hasattr(self.parent, "_stop_fall"):
                 self.parent._stop_fall()
@@ -95,7 +99,7 @@ class MaidActions:
 
         self.dialogue.show_message("下落模式", f"已切换为: {self.FALL_MODE_LABELS[mode]}")
         return True
-
+    
     def _get_current_idle_mode(self):
         anim_cfg = getattr(self.parent, "anim_cfg", {}) or {}
         mode = str(anim_cfg.get("idle_mode", "")).strip().lower()
