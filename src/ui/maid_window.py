@@ -41,6 +41,7 @@ class MaidWindow(QWidget):
         self._edge_hidden = False
         self._edge_hidden_side = None
         self._todo_panel_open = False
+        self._last_context_menu_request_at = 0.0
 
         # 统一管理菜单可见状态与操作权限
         self.menu_controller = OptionMenuController()
@@ -123,6 +124,8 @@ class MaidWindow(QWidget):
 #--------------------------------窗口层级与菜单状态----------------------------------------
     def _keep_on_top(self):
         if self.is_macos:
+            return
+        if self._is_menu_ui_active() or self._custom_scale_adjusting:
             return
         # 仅提升Z轴顺序，不窃取焦点，避免影响用户打字
         self.raise_()
@@ -262,7 +265,7 @@ class MaidWindow(QWidget):
         
         # 计算左下角位置 (加上一点边距)
         x = screen.left() + 100 
-        y = screen.bottom() - maid_height + 10
+        y = screen.bottom() - maid_height + self._bottom_overlap_px()
         
         self.setGeometry(x, y, maid_width, maid_height)
         self.setWindowTitle('DigitMaid')
@@ -440,8 +443,9 @@ class MaidWindow(QWidget):
             # 如果右下角超出屏幕则向左/向上挤
             if new_x + target_width > screen_geo.right():
                 new_x = screen_geo.right() - target_width
-            if new_y + target_height > screen_geo.bottom() + 10:
-                new_y = screen_geo.bottom() + 10 - target_height
+            bottom_overlap = self._bottom_overlap_px()
+            if new_y + target_height > screen_geo.bottom() + bottom_overlap:
+                new_y = screen_geo.bottom() + bottom_overlap - target_height
                 
             # 兜底保证左上角不越界
             new_x = max(screen_geo.left(), new_x)
@@ -633,8 +637,9 @@ class MaidWindow(QWidget):
 
         if new_x + target_width > screen_geo.right():
             new_x = screen_geo.right() - target_width
-        if new_y + target_height > screen_geo.bottom() + 10:
-            new_y = screen_geo.bottom() + 10 - target_height
+        bottom_overlap = self._bottom_overlap_px()
+        if new_y + target_height > screen_geo.bottom() + bottom_overlap:
+            new_y = screen_geo.bottom() + bottom_overlap - target_height
 
         new_x = max(screen_geo.left(), new_x)
         new_y = max(screen_geo.top(), new_y)
@@ -665,8 +670,9 @@ class MaidWindow(QWidget):
 
         if new_x + target_width > screen_geo.right():
             new_x = screen_geo.right() - target_width
-        if new_y + target_height > screen_geo.bottom() + 10:
-            new_y = screen_geo.bottom() + 10 - target_height
+        bottom_overlap = self._bottom_overlap_px()
+        if new_y + target_height > screen_geo.bottom() + bottom_overlap:
+            new_y = screen_geo.bottom() + bottom_overlap - target_height
 
         new_x = max(screen_geo.left(), new_x)
         new_y = max(screen_geo.top(), new_y)
@@ -947,7 +953,7 @@ class MaidWindow(QWidget):
 #--------------------------------下落与边界判定--------------------------------
     def _bottom_y_limit(self):
         screen_geo = self.screen().availableGeometry()
-        return screen_geo.bottom() - self.height() + 10
+        return screen_geo.bottom() - self.height() + self._bottom_overlap_px()
 
     def _is_at_bottom_boundary(self, y=None, tolerance=1):
         if y is None:
@@ -969,6 +975,50 @@ class MaidWindow(QWidget):
 
     def _allow_air_interaction(self):
         return self._get_fall_mode() == "none"
+
+    def _bottom_overlap_px(self):
+        # macOS 的 availableGeometry 已排除 Dock 区域，不再额外向下偏移。
+        return 0 if self.is_macos else 10
+
+    def _request_context_menu(self, global_pos, source="mouse"):
+        if source == "context":
+            now = time.monotonic()
+            # macOS 上一次右键可能同时触发 mousePress/contextMenu 两路事件，做去重避免菜单被立刻反向关闭。
+            if now - self._last_context_menu_request_at < 0.35:
+                return False
+            self._last_context_menu_request_at = now
+        else:
+            self._last_context_menu_request_at = time.monotonic()
+
+        todo_open = bool(getattr(self, "_todo_panel_open", False))
+        controller = getattr(self, "menu_controller", None)
+        if controller is not None and getattr(controller, "is_todo_panel_open", False):
+            todo_open = True
+
+        todo_panel = getattr(self.maid_actions, "todo_panel", None)
+        if todo_panel is not None and bool(getattr(todo_panel, "isVisible", lambda: False)()):
+            todo_open = True
+
+        if todo_open:
+            self.menu_interact_mode = True
+            self._stop_inactivity_timer(reset_stage=True)
+            self.wander_timer.stop()
+            self.play_action("interact", force_loop=True)
+            self.dialogue_system.show_message("待办", "请先点击待办框右上角关闭按钮。")
+            return False
+
+        # 容忍 GIF 帧尺寸切换带来的轻微 y 抖动，避免贴底边视觉上到位却偶发判定失败。
+        if not self._is_at_bottom_boundary(tolerance=14) and not self._allow_air_interaction():
+            return False
+
+        self.dialogue_system.hide_dialogue()
+
+        self.menu_interact_mode = True
+        self._stop_inactivity_timer(reset_stage=True)
+        self.wander_timer.stop()
+        self.play_action("interact", force_loop=True)
+        self.maid_actions.show_context_menu(global_pos)
+        return True
 
     def _stop_fall(self):
         if self._fall_timer.isActive():
@@ -1142,42 +1192,29 @@ class MaidWindow(QWidget):
                 self._stop_inactivity_timer()
               
         elif event.button() == Qt.MouseButton.RightButton:
-            todo_open = bool(getattr(self, "_todo_panel_open", False))
-            controller = getattr(self, "menu_controller", None)
-            if controller is not None and getattr(controller, "is_todo_panel_open", False):
-                todo_open = True
+            self._request_context_menu(event.globalPosition().toPoint(), source="mouse")
 
-            todo_panel = getattr(self.maid_actions, "todo_panel", None)
-            if todo_panel is not None and bool(getattr(todo_panel, "isVisible", lambda: False)()):
-                todo_open = True
+    def contextMenuEvent(self, event):
+        if self._edge_hidden:
+            event.ignore()
+            return
 
-            if todo_open:
-                self.menu_interact_mode = True
-                self._stop_inactivity_timer(reset_stage=True)
-                self.wander_timer.stop()
-                self.play_action("interact", force_loop=True)
-                self.dialogue_system.show_message("待办", "请先点击待办框右上角关闭按钮。")
-                return
+        if self._custom_scale_adjusting:
+            event.ignore()
+            return
 
-            if not self._is_at_bottom_boundary() and not self._allow_air_interaction():
-                return
+        global_pos_getter = getattr(event, "globalPos", None)
+        if callable(global_pos_getter):
+            global_pos = global_pos_getter()
+        else:
+            global_position_getter = getattr(event, "globalPosition", None)
+            if callable(global_position_getter):
+                global_pos = global_position_getter().toPoint()
+            else:
+                global_pos = self.mapToGlobal(self.rect().center())
 
-            # 右击也可以关闭当前弹出的提示气泡
-            self.dialogue_system.hide_dialogue()
-            
-            # 在 special 阶段忽略呼出菜单
-            if self.current_action == "special":
-                return
-                
-            # 菜单打开期间循环 interact
-            self.menu_interact_mode = True
-            # 菜单打开期间彻底停止 idle 计时与散步计时
-            self._stop_inactivity_timer(reset_stage=True)
-            self.wander_timer.stop()
-            self.play_action("interact", force_loop=True)
-            
-            # 委托 action 模块处理右键菜单
-            self.maid_actions.show_context_menu(event.globalPosition().toPoint())
+        self._request_context_menu(global_pos, source="context")
+        event.accept()
 
     def mouseDoubleClickEvent(self, event):
         if self._edge_hidden:
@@ -1242,7 +1279,7 @@ class MaidWindow(QWidget):
                 
                 # 限制在屏幕范围内
                 new_x = max(screen_geo.left(), min(new_pos.x(), screen_geo.right() - self.width()))
-                new_y = max(screen_geo.top(), min(new_pos.y(), screen_geo.bottom() - self.height() + 10))
+                new_y = max(screen_geo.top(), min(new_pos.y(), screen_geo.bottom() - self.height() + self._bottom_overlap_px()))
                 
                 # 判断水平移动方向，如果向左移动则翻转
                 is_moving_left = new_x < self.pos().x()

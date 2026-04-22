@@ -8,7 +8,13 @@ from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath, QFont, QTe
 from src.input.choice_dialog import load_dialog_theme
 
 
-UI_FONT_FAMILY = "Microsoft YaHei"
+def _default_ui_font_family():
+    if sys.platform == "darwin":
+        return "PingFang SC"
+    return "Microsoft YaHei"
+
+
+UI_FONT_FAMILY = _default_ui_font_family()
 
 class OutlineLabel(QLabel):
     def __init__(self, text="", enable_outline=True, parent=None):

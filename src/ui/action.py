@@ -1,6 +1,6 @@
 ﻿from PyQt6.QtWidgets import QMenu, QApplication
 from PyQt6.QtGui import QAction, QActionGroup
-from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint, QSettings
+from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint, QSettings, Qt
 import os
 from src.function import screen_shot, open_app, startup
 from src.function.open_app import load_app_paths
@@ -11,6 +11,8 @@ from .menu_controller import OptionMenuController
 from .todo_panel import TodoPanel
 
 class MaidActions:
+    MENU_VERTICAL_OFFSET_PX = 24
+
     FALL_MODE_LABELS = {
         "smooth": "缓降飘落",
         "direct": "快速直落",
@@ -307,6 +309,17 @@ class MaidActions:
         min_scale_for_center = 0.4
         min_center_y = int(round(bottom_y - (base_height * min_scale_for_center) / 2.0))
         center_y = min(current_center.y(), min_center_y)
+        center_y -= self.MENU_VERTICAL_OFFSET_PX
+
+        screen = QApplication.screenAt(current_center)
+        if screen is None:
+            screen = self.parent.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            center_y = max(geo.top(), center_y)
+
         return QPoint(current_center.x(), center_y)
 
     def _menu_scale_from_maid_scale(self, maid_scale):
@@ -321,6 +334,20 @@ class MaidActions:
         else:
             mapped = scale
         return max(0.4, mapped)
+
+    def _shift_menu_anchor_up(self, anchor_point):
+        shifted = QPoint(anchor_point)
+        shifted.setY(shifted.y() - self.MENU_VERTICAL_OFFSET_PX)
+
+        screen = QApplication.screenAt(anchor_point)
+        if screen is None:
+            screen = self.parent.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            shifted.setY(max(geo.top(), shifted.y()))
+        return shifted
 
     def show_context_menu(self, global_pos):
         # 拦截：如果气泡菜单已经存在并且开着，重复右击则关闭它（相当于开关切换）
@@ -344,6 +371,11 @@ class MaidActions:
         self._set_circular_menu_open_state(False)
 
         menu = QMenu(self.parent)
+        menu.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        if getattr(self.parent, "is_macos", False):
+            always_show_attr = getattr(Qt.WidgetAttribute, "WA_MacAlwaysShowToolWindow", None)
+            if always_show_attr is not None:
+                menu.setAttribute(always_show_attr, True)
         scale = self._menu_scale_from_maid_scale(getattr(self.parent, "user_scale", 1.0))
         border_px = max(1, int(2 * scale))
         radius_px = max(6, int(10 * scale))
@@ -528,7 +560,8 @@ class MaidActions:
 
         self._set_list_menu_open_state(True)
         try:
-            menu.exec(global_pos)
+            QTimer.singleShot(0, menu.raise_)
+            menu.exec(self._shift_menu_anchor_up(global_pos))
 
             if getattr(self.parent, "_custom_scale_adjusting", False):
                 # 预览态下若菜单意外关闭，不要回 idle；保持交互态，允许继续滚轮调节后再手动保存/退出
@@ -643,6 +676,8 @@ class MaidActions:
             parent=self.parent
         )
         self.circular_menu.show()
+        self.circular_menu.raise_()
+        self.circular_menu.activateWindow()
         self._set_circular_menu_open_state(True)
         
     def on_circular_menu_closed(self):

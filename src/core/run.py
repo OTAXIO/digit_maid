@@ -40,7 +40,9 @@ def _acquire_single_instance_lock():
 
 
 def _default_ui_font_family():
-    """Use a unified UI font family."""
+    """Use a platform-specific UI font family."""
+    if sys.platform == "darwin":
+        return "PingFang SC"
     return "Microsoft YaHei"
 
 def main():

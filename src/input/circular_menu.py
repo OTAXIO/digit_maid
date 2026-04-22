@@ -184,6 +184,9 @@ class CircularMenuWidget(QWidget):
 
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        always_show_attr = getattr(Qt.WidgetAttribute, "WA_MacAlwaysShowToolWindow", None)
+        if always_show_attr is not None:
+            self.setAttribute(always_show_attr, True)
         self.setMouseTracking(True)
 
         # 获取中心点所在的屏幕，并覆盖整个可用区域
