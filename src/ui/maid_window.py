@@ -84,6 +84,8 @@ class MaidWindow(QWidget):
         self._keyboard_move_direction = 0
         self._keyboard_fly_active = False
         self._keyboard_fly_step = 4
+        self._keyboard_left_pressed = False
+        self._keyboard_right_pressed = False
         self._keyboard_move_timer = QTimer(self)
         self._keyboard_move_timer.timeout.connect(self._on_keyboard_move_tick)
 
@@ -625,12 +627,16 @@ class MaidWindow(QWidget):
         if getattr(self, "_custom_scale_adjusting", False):
             return False, "请先点击“保存”或“返回”结束自定义大小。"
 
-        if getattr(self, "_is_falling", False):
-            self._stop_fall()
+        if self._keyboard_control_mode:
+            self.force_on_top()
+            self.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
+            return True, "控制移动已开启：按 A / D 移动，按 Esc 退出。"
 
         self._keyboard_control_mode = True
         self._keyboard_move_direction = 0
         self._keyboard_fly_active = False
+        self._keyboard_left_pressed = False
+        self._keyboard_right_pressed = False
         self._keyboard_move_timer.stop()
         self.menu_interact_mode = True
         self._stop_inactivity_timer(reset_stage=True)
@@ -647,6 +653,8 @@ class MaidWindow(QWidget):
         self._keyboard_control_mode = False
         self._keyboard_move_direction = 0
         self._keyboard_fly_active = False
+        self._keyboard_left_pressed = False
+        self._keyboard_right_pressed = False
         self._keyboard_move_timer.stop()
 
         if not self._is_at_bottom_boundary() and not self._allow_air_interaction():
@@ -765,6 +773,21 @@ class MaidWindow(QWidget):
         if not self._keyboard_move_timer.isActive():
             self._keyboard_move_timer.start(self._keyboard_move_interval_ms)
         return True
+
+    def _sync_keyboard_direction_from_pressed_keys(self):
+        left_pressed = bool(getattr(self, "_keyboard_left_pressed", False))
+        right_pressed = bool(getattr(self, "_keyboard_right_pressed", False))
+
+        if left_pressed and not right_pressed:
+            self._set_keyboard_move_direction(-1)
+            return
+
+        if right_pressed and not left_pressed:
+            self._set_keyboard_move_direction(1)
+            return
+
+        if not left_pressed and not right_pressed:
+            self._set_keyboard_move_direction(0)
 
     def _on_keyboard_move_tick(self):
         if not self._keyboard_control_mode:
@@ -1015,7 +1038,7 @@ class MaidWindow(QWidget):
         self._start_inactivity_timer(15000) # 15秒后按待机模式进入下一阶段
 
     def _start_inactivity_timer(self, duration_ms):
-        if (self._edge_hidden || self._keyboard_control_mode):
+        if (self._edge_hidden | self._keyboard_control_mode):
             self._inactivity_deadline = None
             self.inactivity_timer.stop()
             return
@@ -1041,7 +1064,7 @@ class MaidWindow(QWidget):
             self.inactivity_stage = 0
 
     def _on_inactivity_timeout(self):
-        if (self._edge_hidden ||self._keyboard_control_mode):
+        if (self._edge_hidden |self._keyboard_control_mode):
             self._stop_inactivity_timer(reset_stage=True)
             self.wander_timer.stop()
             return
@@ -1376,7 +1399,7 @@ class MaidWindow(QWidget):
             return
 
         if event.button() == Qt.MouseButton.LeftButton:
-            if self._keyboard_control_mode:
+            if self._keyboard_control_mode and not self._is_menu_ui_active():
                 self.stop_keyboard_control_mode(show_tip=False)
 
             # 当左键点击(准备拖拽或点击)时，如果有气泡菜单则关闭
@@ -1410,8 +1433,6 @@ class MaidWindow(QWidget):
                 self.play_action("interact", force_loop=True)
                 self.dialogue_system.show_message("待办", "请先点击待办框右上角关闭按钮。")
                 return
-            if self._keyboard_control_mode:
-                self.stop_keyboard_control_mode(show_tip=False)
             self._request_context_menu(event.globalPosition().toPoint(), source="mouse")
 
     def contextMenuEvent(self, event):
@@ -1566,10 +1587,12 @@ class MaidWindow(QWidget):
 
             key = event.key()
             if key in (Qt.Key.Key_A, Qt.Key.Key_Left):
+                self._keyboard_left_pressed = True
                 self._set_keyboard_move_direction(-1)
                 event.accept()
                 return
             elif key in (Qt.Key.Key_D, Qt.Key.Key_Right):
+                self._keyboard_right_pressed = True
                 self._set_keyboard_move_direction(1)
                 event.accept()
                 return
@@ -1596,8 +1619,14 @@ class MaidWindow(QWidget):
                 return
 
             key = event.key()
-            if key in (Qt.Key.Key_A, Qt.Key.Key_Left, Qt.Key.Key_D, Qt.Key.Key_Right):
-                self._set_keyboard_move_direction(0)
+            if key in (Qt.Key.Key_A, Qt.Key.Key_Left):
+                self._keyboard_left_pressed = False
+                self._sync_keyboard_direction_from_pressed_keys()
+                event.accept()
+                return
+            if key in (Qt.Key.Key_D, Qt.Key.Key_Right):
+                self._keyboard_right_pressed = False
+                self._sync_keyboard_direction_from_pressed_keys()
                 event.accept()
                 return
             if key == Qt.Key.Key_Space:

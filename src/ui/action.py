@@ -679,10 +679,7 @@ class MaidActions:
         top_items = [
             {'label': 'APP', 'action': app_sub_items},
             {'label': 'TOOL', 'action': tools_sub_items},
-<<<<<<< Updated upstream
             {'label': '待办', 'action': self.show_todo_panel},
-=======
->>>>>>> Stashed changes
             {'label': "设置", 'action': setting_label},
             {'label': '关闭', 'action': self.trigger_quit}
         ]
