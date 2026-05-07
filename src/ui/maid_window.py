@@ -1041,7 +1041,7 @@ class MaidWindow(QWidget):
         self._start_inactivity_timer(15000) # 15秒后按待机模式进入下一阶段
 
     def _start_inactivity_timer(self, duration_ms):
-        if self._edge_hidden or self._keyboard_control_mode:
+        if (self._edge_hidden | self._keyboard_control_mode):
             self._inactivity_deadline = None
             self.inactivity_timer.stop()
             return
@@ -1067,7 +1067,7 @@ class MaidWindow(QWidget):
             self.inactivity_stage = 0
 
     def _on_inactivity_timeout(self):
-        if self._edge_hidden or self._keyboard_control_mode:
+        if (self._edge_hidden |self._keyboard_control_mode):
             self._stop_inactivity_timer(reset_stage=True)
             self.wander_timer.stop()
             return
@@ -1208,6 +1208,11 @@ class MaidWindow(QWidget):
             self._last_context_menu_request_at = now
         else:
             self._last_context_menu_request_at = time.monotonic()
+
+        if self._keyboard_control_mode:
+            if hasattr(self, "dialogue_system"):
+                self.dialogue_system.show_message("控制移动", "控制移动中，按 Esc 退出后再操作。")
+            return False
 
         todo_open = bool(getattr(self, "_todo_panel_open", False))
         controller = getattr(self, "menu_controller", None)
@@ -1404,9 +1409,6 @@ class MaidWindow(QWidget):
             return
 
         if event.button() == Qt.MouseButton.LeftButton:
-            if self._keyboard_control_mode and not self._is_menu_ui_active():
-                self.stop_keyboard_control_mode(show_tip=False)
-
             # 当左键点击(准备拖拽或点击)时，如果有气泡菜单则关闭
             if hasattr(self.maid_actions, "circular_menu") and self.maid_actions.circular_menu is not None:
                 if getattr(self.maid_actions.circular_menu, "isVisible", lambda: False)():
@@ -1422,6 +1424,12 @@ class MaidWindow(QWidget):
                 self._stop_inactivity_timer()
               
         elif event.button() == Qt.MouseButton.RightButton:
+            if self._keyboard_control_mode:
+                if hasattr(self, "dialogue_system"):
+                    self.dialogue_system.show_message("控制移动", "控制移动中，按 Esc 退出后再操作。")
+                event.ignore()
+                return
+
             todo_open = bool(getattr(self, "_todo_panel_open", False))
             controller = getattr(self, "menu_controller", None)
             if controller is not None and getattr(controller, "is_todo_panel_open", False):
