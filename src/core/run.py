@@ -1,7 +1,7 @@
 import sys
 import os
 from PyQt6.QtWidgets import QApplication
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtCore import QSharedMemory
 
 # 调整 Python 路径以确保可以从 src 导入模块
@@ -19,6 +19,11 @@ if project_root not in sys.path:
 from src.ui.maid_window import MaidWindow
 
 
+def _resolve_resource_path(*parts):
+    """Resolve a resource path in both dev and PyInstaller runtime."""
+    return os.path.join(project_root, *parts)
+
+
 def _acquire_single_instance_lock():
     """Return a live shared memory lock object; return None if another instance is running."""
     lock = QSharedMemory("DigitMaid.Singleton")
@@ -33,6 +38,13 @@ def _acquire_single_instance_lock():
 
     return lock
 
+
+def _default_ui_font_family():
+    """Use a platform-specific UI font family."""
+    if sys.platform == "darwin":
+        return "PingFang SC"
+    return "Microsoft YaHei"
+
 def main():
     """
     Digit Maid 应用程序入口点
@@ -40,7 +52,14 @@ def main():
     print(f"启动 Digit Maid... (Root: {project_root})")
     
     app = QApplication(sys.argv)
-    app.setFont(QFont("Microsoft YaHei"))
+    # 显式设置字号与粗体，避免 Qt 使用未指定 point size (-1) 产生告警。
+    ui_font = QFont(_default_ui_font_family(), 10)
+    ui_font.setBold(True)
+    app.setFont(ui_font)
+
+    icon_path = _resolve_resource_path("resource", "wisdel", "皮肤素材", "维什戴尔大人.png")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
 
     instance_lock = _acquire_single_instance_lock()
     if instance_lock is None:

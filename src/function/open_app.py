@@ -14,6 +14,12 @@ _WINDOWS_CONSOLE_APPS = {
 }
 
 
+def _is_windows_path(value):
+    if not value:
+        return False
+    return "\\" in value or (len(value) > 1 and value[1] == ":")
+
+
 def _launch_windows_app(target):
     """Launch app safely on Windows, keeping console apps visible."""
     exe_name = os.path.basename(target).lower()
@@ -24,6 +30,15 @@ def _launch_windows_app(target):
         return
 
     subprocess.Popen([target], creationflags=subprocess.DETACHED_PROCESS, shell=False)
+
+
+def _launch_macos_app(target):
+    """Launch app on macOS using open command."""
+    if os.path.exists(target):
+        subprocess.run(["open", target], check=True, capture_output=True)
+        return
+
+    subprocess.run(["open", "-a", target], check=True, capture_output=True)
 
 def load_app_paths():
     """解析简单的 YAML 文件读取应用路径配置"""
@@ -92,8 +107,33 @@ def open_application(app_name):
                 return f"尝试启动 {app_name}"
             except FileNotFoundError:
                 return f"找不到应用: {app_name}"
+        elif system == "Darwin":
+            app_configs = load_app_paths()
+
+            for keyword, paths in app_configs.items():
+                if keyword.lower() in app_name:
+                    for path in paths:
+                        if _is_windows_path(path):
+                            continue
+                        if os.path.exists(path):
+                            try:
+                                _launch_macos_app(path)
+                                return f"已启动{keyword}"
+                            except (FileNotFoundError, subprocess.CalledProcessError):
+                                continue
+                    try:
+                        _launch_macos_app(keyword)
+                        return f"已启动{keyword}"
+                    except (FileNotFoundError, subprocess.CalledProcessError):
+                        return f"未找到{keyword}，请确认 apps.yaml 中的安装位置"
+
+            try:
+                _launch_macos_app(app_name)
+                return f"尝试启动 {app_name}"
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                return f"找不到应用: {app_name}"
         else:
-            return "当前仅支持 Windows 系统的简单应用启动"
+            return "当前仅支持 Windows / macOS 系统的简单应用启动"
             
     except Exception as e:
         return f"启动失败: {e}"

@@ -1,10 +1,20 @@
 import math
+import sys
 
 from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QApplication
 from PyQt6.QtCore import Qt, QTimer, QRectF
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath, QFont, QTextDocument
 
 from src.input.choice_dialog import load_dialog_theme
+
+
+def _default_ui_font_family():
+    if sys.platform == "darwin":
+        return "PingFang SC"
+    return "Microsoft YaHei"
+
+
+UI_FONT_FAMILY = _default_ui_font_family()
 
 class OutlineLabel(QLabel):
     def __init__(self, text="", enable_outline=True, parent=None):
@@ -59,8 +69,11 @@ class SpeechBubble(QWidget):
         self.arrow_tip_dx = 10
         self.arrow_end_dx = 15
         
-        # 设置窗口属性：无边框、置顶、透明背景
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        # macOS 下避免始终置顶，防止影响切换到其他应用。
+        flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
+        if sys.platform != "darwin":
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         
         # 布局与内容
@@ -69,7 +82,9 @@ class SpeechBubble(QWidget):
         self.label.setWordWrap(True)
         # 支持 HTML 格式 (比如标题加粗)
         self.label.setTextFormat(Qt.TextFormat.RichText) 
-        self.label.setFont(QFont("Microsoft YaHei", 10))
+        init_font = QFont(UI_FONT_FAMILY, 10)
+        init_font.setBold(True)
+        self.label.setFont(init_font)
         
         if self.outline_dialog_text:
             self.label.setStyleSheet("color: transparent;") # 隐藏自带的字，只保留自定义边框文字
@@ -128,7 +143,9 @@ class SpeechBubble(QWidget):
         self.ui_scale = ui_scale
 
         font_px = max(6, int(round(10 * self.ui_scale)))
-        self.label.setFont(QFont("Microsoft YaHei", font_px))
+        scaled_font = QFont(UI_FONT_FAMILY, font_px)
+        scaled_font.setBold(True)
+        self.label.setFont(scaled_font)
 
         max_width = max(100, int(round(250 * self.ui_scale)))
         self.setMaximumWidth(max_width)

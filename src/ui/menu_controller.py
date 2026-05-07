@@ -16,6 +16,7 @@ class OptionMenuController:
     def __init__(self):
         self._list_menu_open = False
         self._circular_menu_open = False
+        self._todo_panel_open = False
         self._custom_scale_adjusting = False
 
     def set_list_menu_open(self, is_open: bool):
@@ -23,6 +24,9 @@ class OptionMenuController:
 
     def set_circular_menu_open(self, is_open: bool):
         self._circular_menu_open = bool(is_open)
+
+    def set_todo_panel_open(self, is_open: bool):
+        self._todo_panel_open = bool(is_open)
 
     def set_custom_scale_adjusting(self, is_active: bool):
         self._custom_scale_adjusting = bool(is_active)
@@ -32,7 +36,24 @@ class OptionMenuController:
         return self._list_menu_open or self._circular_menu_open
 
     @property
+    def is_todo_panel_open(self) -> bool:
+        return self._todo_panel_open
+
+    @property
+    def is_ui_locked(self) -> bool:
+        return self.is_menu_open or self._todo_panel_open
+
+    @property
     def policy(self) -> MenuOperationPolicy:
+        if self._todo_panel_open:
+            return MenuOperationPolicy(
+                allow_idle_timer=False,
+                allow_wander=False,
+                allow_drag=False,
+                allow_double_click=False,
+                allow_fall=False,
+            )
+
         if self._custom_scale_adjusting:
             return MenuOperationPolicy(
                 allow_idle_timer=False,

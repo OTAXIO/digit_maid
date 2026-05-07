@@ -180,19 +180,24 @@ class CircularMenuWidget(QWidget):
         """
         items: list of dicts. [{'label': 'name', 'action': callable or sub_items_list}]
         """
-        super().__init__(None) # Independent window
-        
+        super().__init__(None)  # Independent window
+
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        always_show_attr = getattr(Qt.WidgetAttribute, "WA_MacAlwaysShowToolWindow", None)
+        if always_show_attr is not None:
+            self.setAttribute(always_show_attr, True)
         self.setMouseTracking(True)
-        
-        # Cover the whole screen
-        screen_geo = QApplication.primaryScreen().availableGeometry()
+
+        # 获取中心点所在的屏幕，并覆盖整个可用区域
+        screen = QApplication.screenAt(center_pos)
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        screen_geo = screen.availableGeometry()
         self.setGeometry(screen_geo)
-        
+
         self.center_pos = center_pos
         self.on_close_callback = on_close_callback
-        # 菜单可随桌宠缩小，最小 0.4
         self.menu_scale = max(0.4, float(menu_scale))
         self.maid_widget = parent
 
@@ -201,21 +206,22 @@ class CircularMenuWidget(QWidget):
         self.use_image_buttons = self.theme.get("circular_button_mode", "default").lower() == "image"
         self.select_btn_path = self._resolve_theme_path(self.theme.get("circular_btn_select", ""))
         self.quit_btn_path = self._resolve_theme_path(self.theme.get("circular_btn_quit", ""))
-        
-        self.history = [] # Stack of (items, page_idx)
+        self.off_btn_path = self._resolve_theme_path(self.theme.get("circular_btn_off", ""))
+
+        self.history = []  # Stack of (items, page_idx)
         self.suppress_auto_back = False
         self.current_items = items
         self.current_page = 0
         self.buttons = []
         self._force_close = False
-        
+
         # 15秒无操作自动关闭
         self.inactivity_timer = QTimer(self)
         self.inactivity_timer.setSingleShot(True)
         self.inactivity_timer.timeout.connect(self.close_menu)
         self.auto_close_enabled = True
         self.inactivity_timer.start(15000)
-        
+
         self._build_menu()
 
     @staticmethod
@@ -268,20 +274,23 @@ class CircularMenuWidget(QWidget):
         path_val = path_val.strip().strip("'\"")
         if not path_val:
             return None
+        # 兼容 Windows 和 POSIX 路径分隔符
+        path_val = os.path.normpath(path_val.replace("\\", "/"))
         if not os.path.isabs(path_val):
             path_val = os.path.join(self.root_dir, path_val)
+        path_val = os.path.normpath(path_val)
         return path_val if os.path.exists(path_val) else None
-        
+
     def _build_menu(self):
-        # Clear old buttons
+        # 清除旧按钮
         for btn in self.buttons:
             btn.deleteLater()
         self.buttons.clear()
-        
+
         btn_half = max(14, int((80 if self.use_image_buttons else 70) * self.menu_scale / 2))
         R = max(48, int(120 * self.menu_scale))
-        
-        # Separate special items from regular ones
+
+        # 分离常规项和“退出”项
         regular_items = []
         exit_item = None
         for item in self.current_items:
@@ -289,16 +298,16 @@ class CircularMenuWidget(QWidget):
                 exit_item = item
             else:
                 regular_items.append(item)
-                
-        # Pagination logic
+
+        # 分页逻辑
         page_items = []
         if len(regular_items) > 5:
             start_idx = 0
             for i in range(self.current_page):
                 start_idx += 4 if i == 0 else 3
-                
+
             items_left = len(regular_items) - start_idx
-            
+
             if self.current_page == 0:
                 page_items.extend(regular_items[start_idx : start_idx + 4])
                 page_items.append({'label': '>', 'action': 'next_page'})
@@ -311,78 +320,83 @@ class CircularMenuWidget(QWidget):
                     page_items.extend(regular_items[start_idx : start_idx + 4])
         else:
             page_items = regular_items.copy()
-            
+
         display_items = []
-        # Add 'Back' button if in sub-menu
+        # 子菜单时添加“返回”按钮
         if self.history and not self.suppress_auto_back:
             display_items.append({'label': '返回', 'action': 'back'})
-            
+
         display_items.extend(page_items)
         if exit_item:
             display_items.append(exit_item)
-            
+
         n = len(display_items)
         if n == 1:
             angles = [math.pi / 2]
         else:
-            # 智能判断可用的角度范围
-            screen_geo = QApplication.primaryScreen().availableGeometry()
-            margin = R + btn_half + 10  # 半径 + 按钮半径 + 边距
-            
+            # 获取中心点所在屏幕的可用区域
+            screen = QApplication.screenAt(self.center_pos)
+            if screen is None:
+                screen = QApplication.primaryScreen()
+            screen_geo = screen.availableGeometry()
+            margin = R + btn_half + 10
+
             can_up = (self.center_pos.y() - screen_geo.top()) >= margin
             can_down = (screen_geo.bottom() - self.center_pos.y()) >= margin
             can_left = (self.center_pos.x() - screen_geo.left()) >= margin
             can_right = (screen_geo.right() - self.center_pos.x()) >= margin
-            
+
             if can_up and can_left and can_right:
-                # 默认情况：上方半圆 180° 到 0°
+                # 上方半圆 180° → 0°
                 start_angle = math.pi
                 sweep_angle = -math.pi
             elif not can_up and can_left and can_right:
-                # 靠上：下方半圆 180° 到 360° (左到右)
+                # 靠上：下方半圆 180° → 360° (左到右)
                 start_angle = math.pi
                 sweep_angle = math.pi
             elif not can_left and can_up and can_down:
-                # 靠左：右方半圆 90° 到 -90° (上到下)
+                # 靠左：右方半圆 90° → -90° (上到下)
                 start_angle = math.pi / 2
                 sweep_angle = -math.pi
             elif not can_right and can_up and can_down:
-                # 靠右：左方半圆 90° 到 270° (上到下)
+                # 靠右：左方半圆 90° → 270° (上到下)
                 start_angle = math.pi / 2
                 sweep_angle = math.pi
             elif not can_up and not can_left:
-                # 左上角：右下方 0° 到 -90° (右到下)
+                # 左上角：右下方 0° → -90° (右到下)
                 start_angle = 0
                 sweep_angle = -math.pi / 2
             elif not can_up and not can_right:
-                # 右上角：左下方 180° 到 270° (左到下)
+                # 右上角：左下方 180° → 270° (左到下)
                 start_angle = math.pi
                 sweep_angle = math.pi / 2
             elif not can_down and not can_left:
-                # 左下角：右上方 90° 到 0° (上到右)
+                # 左下角：右上方 90° → 0° (上到右)
                 start_angle = math.pi / 2
                 sweep_angle = -math.pi / 2
             elif not can_down and not can_right:
-                # 右下角：左上方 90° 到 180° (上到左)
+                # 右下角：左上方 90° → 180° (上到左)
                 start_angle = math.pi / 2
                 sweep_angle = math.pi / 2
             elif not can_down and can_left and can_right:
-                # 靠下：上方半圆 180° 到 0° (与默认相同)
+                # 靠下：上方半圆 180° → 0°
                 start_angle = math.pi
                 sweep_angle = -math.pi
             else:
                 # 兜底：上方半圆
                 start_angle = math.pi
                 sweep_angle = -math.pi
-                
+
             angles = [start_angle + i * (sweep_angle / (n - 1)) for i in range(n)]
-            
+
         for i, item in enumerate(display_items):
             is_special_btn = (item['label'] in ['返回', '退出', '<', '>'])
             text_color = item.get('text_color', 'white')
             icon_path = None
             if self.use_image_buttons:
-                if is_special_btn:
+                if item['label'] == '关闭':
+                    icon_path = self.off_btn_path or self.quit_btn_path or self.select_btn_path
+                elif is_special_btn:
                     icon_path = self.quit_btn_path
                 else:
                     icon_path = self.select_btn_path
@@ -395,29 +409,28 @@ class CircularMenuWidget(QWidget):
                 text_color=text_color,
                 parent=self
             )
-            
-            # Target position
+
+            # 目标位置（全局坐标）
             tar_x = self.center_pos.x() + R * math.cos(angles[i]) - btn.width() / 2
             tar_y = self.center_pos.y() - R * math.sin(angles[i]) - btn.height() / 2
-            
-            # Start position (center)
+
+            # 起始位置（中心点）
             start_x = self.center_pos.x() - btn.width() / 2
             start_y = self.center_pos.y() - btn.height() / 2
-            
+
             btn.move(int(start_x), int(start_y))
-            
-            # Animation
+
+            # 弹出动画
             anim = QPropertyAnimation(btn, b"geometry")
             anim.setDuration(300)
             anim.setStartValue(QRect(int(start_x), int(start_y), btn.width(), btn.height()))
             anim.setEndValue(QRect(int(tar_x), int(tar_y), btn.width(), btn.height()))
             anim.setEasingCurve(QEasingCurve.Type.OutBack)
             anim.start(QPropertyAnimation.DeletionPolicy.KeepWhenStopped)
-            
-            # Save ref to keep anim alive? Not strictly necessary in PyQt but safe
+
             setattr(btn, 'anim', anim)
             btn.set_target_pos(tar_x, tar_y, angles[i])
-            
+
             def make_callback(item_meta):
                 def cb():
                     action_val = item_meta.get('action')
@@ -435,7 +448,6 @@ class CircularMenuWidget(QWidget):
                         self.current_page -= 1
                         self._build_menu()
                     elif isinstance(action_val, list):
-                        # Enter sub-menu
                         on_enter = item_meta.get('on_enter')
                         if callable(on_enter):
                             on_enter()
@@ -445,7 +457,6 @@ class CircularMenuWidget(QWidget):
                         self.suppress_auto_back = bool(item_meta.get('suppress_back', False))
                         self._build_menu()
                     elif callable(action_val):
-                        # Execute with configurable close timing
                         if close_before_action:
                             self.close_menu()
                             action_val()
@@ -454,18 +465,17 @@ class CircularMenuWidget(QWidget):
                             if close_after_action:
                                 self.close_menu()
                 return cb
-                
+
             btn.clicked.connect(make_callback(item))
             btn.show()
             self.buttons.append(btn)
-            
+
     def mousePressEvent(self, event):
         if self.maid_widget is not None and getattr(self.maid_widget, '_custom_scale_adjusting', False):
             event.accept()
             return
-        # Click outside closes the menu
         self.close_menu()
-        
+
     def mouseMoveEvent(self, event):
         if self.auto_close_enabled:
             self.inactivity_timer.start(15000)
@@ -484,7 +494,7 @@ class CircularMenuWidget(QWidget):
                     event.accept()
                     return
         super().wheelEvent(event)
-        
+
     def closeEvent(self, event):
         app = QApplication.instance()
         app_closing = bool(app.closingDown()) if app is not None else False
@@ -501,4 +511,3 @@ class CircularMenuWidget(QWidget):
         self._force_close = True
         self.close()
         self._force_close = False
-

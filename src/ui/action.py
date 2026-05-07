@@ -1,6 +1,6 @@
 ﻿from PyQt6.QtWidgets import QMenu, QApplication
 from PyQt6.QtGui import QAction, QActionGroup
-from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint, QSettings
+from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint, QSettings, Qt
 import os
 from src.function import screen_shot, open_app, startup
 from src.function.open_app import load_app_paths
@@ -8,8 +8,11 @@ from src.input import choice_dialog
 from src.input.choice_dialog import load_dialog_theme
 from src.input.circular_menu import CircularMenuWidget
 from .menu_controller import OptionMenuController
+from .todo_panel import TodoPanel
 
 class MaidActions:
+    MENU_VERTICAL_OFFSET_PX = 24
+
     FALL_MODE_LABELS = {
         "smooth": "缓降飘落",
         "direct": "快速直落",
@@ -24,10 +27,13 @@ class MaidActions:
     def __init__(self, parent_widget, dialogue_system):
         self.parent = parent_widget
         self.dialogue = dialogue_system
+        self.todo_panel = None
         if not hasattr(self.parent, "menu_controller"):
             self.parent.menu_controller = OptionMenuController()
         if not hasattr(self.parent, "_list_menu_open"):
             self.parent._list_menu_open = False
+        if not hasattr(self.parent, "_todo_panel_open"):
+            self.parent._todo_panel_open = False
 
     def _set_list_menu_open_state(self, is_open):
         is_open = bool(is_open)
@@ -40,6 +46,66 @@ class MaidActions:
         controller = getattr(self.parent, "menu_controller", None)
         if controller is not None:
             controller.set_circular_menu_open(bool(is_open))
+
+    def _set_todo_panel_open_state(self, is_open):
+        is_open = bool(is_open)
+        self.parent._todo_panel_open = is_open
+        controller = getattr(self.parent, "menu_controller", None)
+        if controller is not None:
+            controller.set_todo_panel_open(is_open)
+
+    def _is_todo_panel_visible(self):
+        panel = getattr(self, "todo_panel", None)
+        if panel is None:
+            return False
+        return bool(getattr(panel, "isVisible", lambda: False)())
+
+    def _position_todo_panel(self, panel):
+        anchor = self.parent.mapToGlobal(self.parent.rect().center())
+        screen = QApplication.screenAt(anchor)
+        if screen is None:
+            screen = self.parent.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+
+        geo = screen.availableGeometry()
+        x = self.parent.x() + self.parent.width() + 18
+        y = self.parent.y() - 10
+
+        if x + panel.width() > geo.right():
+            x = self.parent.x() - panel.width() - 18
+
+        x = max(geo.left(), min(x, geo.right() - panel.width() + 1))
+        y = max(geo.top(), min(y, geo.bottom() - panel.height() + 1))
+        panel.move(int(x), int(y))
+
+    def show_todo_panel(self):
+        if getattr(self.parent, "_custom_scale_adjusting", False):
+            self.dialogue.show_message("待办", "请先点击“保存”或“返回”结束自定义大小。")
+            return False
+
+        if self._is_todo_panel_visible():
+            self.todo_panel.raise_()
+            self.todo_panel.activateWindow()
+            return True
+
+        if self.todo_panel is None:
+            self.todo_panel = TodoPanel(on_close_callback=self.on_todo_panel_closed, parent=self.parent)
+        else:
+            self.todo_panel.on_close_callback = self.on_todo_panel_closed
+
+        self._position_todo_panel(self.todo_panel)
+        self.todo_panel.show()
+        self.todo_panel.raise_()
+        self.todo_panel.activateWindow()
+        return True
+
+    def on_todo_panel_closed(self):
+        self._set_todo_panel_open_state(False)
+        if hasattr(self.parent, "force_on_top"):
+            self.parent.force_on_top()
 
     def _get_maid_animation_cfg_path(self):
         return os.path.join(os.path.dirname(__file__), "maid_animations.yaml")
@@ -99,7 +165,6 @@ class MaidActions:
 
         self.dialogue.show_message("下落模式", f"已切换为: {self.FALL_MODE_LABELS[mode]}")
         return True
-    
     def _get_current_idle_mode(self):
         anim_cfg = getattr(self.parent, "anim_cfg", {}) or {}
         mode = str(anim_cfg.get("idle_mode", "")).strip().lower()
@@ -178,6 +243,15 @@ class MaidActions:
             self.dialogue.show_message("大小调整", detail or "调整大小失败")
         return ok
 
+    def start_keyboard_control(self):
+        if hasattr(self.parent, "start_keyboard_control_mode"):
+            ok, detail = self.parent.start_keyboard_control_mode()
+        else:
+            ok, detail = False, "当前窗口不支持键盘控制移动"
+
+        self.dialogue.show_message("控制移动", detail)
+        return ok
+
     def _set_custom_maid_scale(self):
         return self._start_custom_scale_adjustment()
 
@@ -244,6 +318,17 @@ class MaidActions:
         min_scale_for_center = 0.4
         min_center_y = int(round(bottom_y - (base_height * min_scale_for_center) / 2.0))
         center_y = min(current_center.y(), min_center_y)
+        center_y -= self.MENU_VERTICAL_OFFSET_PX
+
+        screen = QApplication.screenAt(current_center)
+        if screen is None:
+            screen = self.parent.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            center_y = max(geo.top(), center_y)
+
         return QPoint(current_center.x(), center_y)
 
     def _menu_scale_from_maid_scale(self, maid_scale):
@@ -258,6 +343,20 @@ class MaidActions:
         else:
             mapped = scale
         return max(0.4, mapped)
+
+    def _shift_menu_anchor_up(self, anchor_point):
+        shifted = QPoint(anchor_point)
+        shifted.setY(shifted.y() - self.MENU_VERTICAL_OFFSET_PX)
+
+        screen = QApplication.screenAt(anchor_point)
+        if screen is None:
+            screen = self.parent.screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is not None:
+            geo = screen.availableGeometry()
+            shifted.setY(max(geo.top(), shifted.y()))
+        return shifted
 
     def show_context_menu(self, global_pos):
         # 拦截：如果气泡菜单已经存在并且开着，重复右击则关闭它（相当于开关切换）
@@ -281,6 +380,11 @@ class MaidActions:
         self._set_circular_menu_open_state(False)
 
         menu = QMenu(self.parent)
+        menu.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, True)
+        if getattr(self.parent, "is_macos", False):
+            always_show_attr = getattr(Qt.WidgetAttribute, "WA_MacAlwaysShowToolWindow", None)
+            if always_show_attr is not None:
+                menu.setAttribute(always_show_attr, True)
         scale = self._menu_scale_from_maid_scale(getattr(self.parent, "user_scale", 1.0))
         border_px = max(1, int(2 * scale))
         radius_px = max(6, int(10 * scale))
@@ -298,9 +402,11 @@ class MaidActions:
         # 尝试应用 dialog_style.yaml 中的背景
         bg_path = theme.get("background", "")
         if bg_path:
+            bg_path = os.path.normpath(bg_path.replace("\\", "/"))
             root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
             if not os.path.isabs(bg_path):
                 bg_path = os.path.join(root_dir, bg_path)
+            bg_path = os.path.normpath(bg_path)
             
             if os.path.exists(bg_path):
                 bg_url = bg_path.replace("\\", "/")
@@ -349,10 +455,20 @@ class MaidActions:
             app_menu.addAction(action)
 
         menu.addSeparator()
-        # 截图/识别屏幕
+
+        tool_menu = menu.addMenu("TOOL")
+
         action_screenshot = QAction('截图', self.parent)
         action_screenshot.triggered.connect(self.do_screenshot)
-        menu.addAction(action_screenshot)
+        tool_menu.addAction(action_screenshot)
+
+        action_keyboard_control = QAction('控制移动', self.parent)
+        action_keyboard_control.triggered.connect(self.start_keyboard_control)
+        tool_menu.addAction(action_keyboard_control)
+
+        action_todo = QAction('待办', self.parent)
+        action_todo.triggered.connect(self.show_todo_panel)
+        menu.addAction(action_todo)
 
         settings_menu = menu.addMenu("设置")
 
@@ -459,7 +575,8 @@ class MaidActions:
 
         self._set_list_menu_open_state(True)
         try:
-            menu.exec(global_pos)
+            QTimer.singleShot(0, menu.raise_)
+            menu.exec(self._shift_menu_anchor_up(global_pos))
 
             if getattr(self.parent, "_custom_scale_adjusting", False):
                 # 预览态下若菜单意外关闭，不要回 idle；保持交互态，允许继续滚轮调节后再手动保存/退出
@@ -502,7 +619,7 @@ class MaidActions:
         ]
         tools_sub_items = [
             {'label': 'VPN', 'action': lambda: self.do_open_app("v2rayN")},
-            {'label': '截屏', 'action': screenshot_sub_items},        
+            {'label': '截屏', 'action': screenshot_sub_items},
         ]
 
         current_mode = self._get_current_fall_mode()
@@ -518,8 +635,8 @@ class MaidActions:
         current_idle_mode = self._get_current_idle_mode()
         idle_mode_sub_items = [
             {
-                'text_color': "#e32e2e" if mode == current_idle_mode else 'white',
                 'label': label,
+                'text_color': "#e32e2e" if mode == current_idle_mode else 'white',
                 'action': lambda m=mode: self._set_idle_mode(m)
             }
             for mode, label in self.IDLE_MODE_LABELS.items()
@@ -555,9 +672,15 @@ class MaidActions:
             {'label': '待机模式', 'action': idle_mode_sub_items},
             {'label': '关闭自启动' if startup.is_startup_enabled() else '开启自启动', 'action': self.toggle_startup},
         ]
+        tools_sub_items = [
+            {'label': '截屏', 'action': screenshot_sub_items},
+            {'label': '控制移动', 'action': self.start_keyboard_control},
+        ]
+
         top_items = [
             {'label': 'APP', 'action': app_sub_items},
             {'label': 'TOOL', 'action': tools_sub_items},
+            {'label': '待办', 'action': self.show_todo_panel},
             {'label': "设置", 'action': setting_label},
             {'label': '关闭', 'action': self.trigger_quit}
         ]
@@ -574,6 +697,8 @@ class MaidActions:
             parent=self.parent
         )
         self.circular_menu.show()
+        self.circular_menu.raise_()
+        self.circular_menu.activateWindow()
         self._set_circular_menu_open_state(True)
         
     def on_circular_menu_closed(self):
@@ -702,6 +827,11 @@ class MaidActions:
             result = open_app.open_application(app_name)
             print(result)
             self.dialogue.show_message("打开软件", result)
+
+        if getattr(self.parent, "is_macos", False):
+            # 目标应用激活后做一次可见性兜底，避免桌宠被系统判定为隐藏。
+            self.parent.show()
+            QTimer.singleShot(250, self.parent.show)
 
     def toggle_startup(self, enabled=None):
         if enabled is None:
