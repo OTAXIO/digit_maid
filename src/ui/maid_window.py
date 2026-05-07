@@ -83,6 +83,7 @@ class MaidWindow(QWidget):
         self._keyboard_move_interval_ms = 16
         self._keyboard_move_direction = 0
         self._keyboard_fly_active = False
+        self._keyboard_direct_fall_active = False
         self._keyboard_fly_step = 4
         self._keyboard_left_pressed = False
         self._keyboard_right_pressed = False
@@ -635,6 +636,7 @@ class MaidWindow(QWidget):
         self._keyboard_control_mode = True
         self._keyboard_move_direction = 0
         self._keyboard_fly_active = False
+        self._keyboard_direct_fall_active = False
         self._keyboard_left_pressed = False
         self._keyboard_right_pressed = False
         self._keyboard_move_timer.stop()
@@ -644,7 +646,7 @@ class MaidWindow(QWidget):
         self._ensure_keyboard_stand_animation()
         self.force_on_top()
         self.setFocus(Qt.FocusReason.ActiveWindowFocusReason)
-        return True, "控制移动已开启：按 A / D 移动，按 Esc 退出。"
+        return True, "控制移动已开启：按 A / D 移动，W/↑/空格上升，S/↓下落，按 Esc 退出。"
 
     def stop_keyboard_control_mode(self, show_tip=False):
         if not self._keyboard_control_mode:
@@ -653,6 +655,7 @@ class MaidWindow(QWidget):
         self._keyboard_control_mode = False
         self._keyboard_move_direction = 0
         self._keyboard_fly_active = False
+        self._keyboard_direct_fall_active = False
         self._keyboard_left_pressed = False
         self._keyboard_right_pressed = False
         self._keyboard_move_timer.stop()
@@ -1175,6 +1178,8 @@ class MaidWindow(QWidget):
         return y >= self._bottom_y_limit() - tolerance
 
     def _get_fall_mode(self):
+        if getattr(self, "_keyboard_control_mode", False) and getattr(self, "_keyboard_direct_fall_active", False):
+            return "direct"
         mode = str(self.anim_cfg.get("fall_mode", "")).strip().lower()
         if mode in ("smooth", "direct", "none"):
             return mode
@@ -1600,13 +1605,21 @@ class MaidWindow(QWidget):
                 self.stop_keyboard_control_mode(show_tip=True)
                 event.accept()
                 return
-            elif key == Qt.Key.Key_Space:
+            elif key in (Qt.Key.Key_W, Qt.Key.Key_Up, Qt.Key.Key_Space):
+                self._keyboard_direct_fall_active = False
                 self._keyboard_fly_active = True
                 if getattr(self, "_is_falling", False):
                     self._stop_fall()
                 self._move_up_by_keyboard_step()
                 if not self._keyboard_move_timer.isActive():
                     self._keyboard_move_timer.start(self._keyboard_move_interval_ms)
+                event.accept()
+                return
+            elif key in (Qt.Key.Key_S, Qt.Key.Key_Down):
+                self._keyboard_direct_fall_active = True
+                self._keyboard_fly_active = False
+                if not self._is_at_bottom_boundary():
+                    self._start_fall_to_bottom()
                 event.accept()
                 return
 
@@ -1629,11 +1642,17 @@ class MaidWindow(QWidget):
                 self._sync_keyboard_direction_from_pressed_keys()
                 event.accept()
                 return
-            if key == Qt.Key.Key_Space:
+            if key in (Qt.Key.Key_W, Qt.Key.Key_Up, Qt.Key.Key_Space):
                 self._keyboard_fly_active = False
                 if not self._is_at_bottom_boundary() and not self._allow_air_interaction():
                     self._start_fall_to_bottom()
                 elif self._keyboard_move_direction == 0:
+                    self._ensure_keyboard_stand_animation()
+                event.accept()
+                return
+            if key in (Qt.Key.Key_S, Qt.Key.Key_Down):
+                self._keyboard_direct_fall_active = False
+                if self._keyboard_move_direction == 0 and not self._keyboard_fly_active and not self._is_falling:
                     self._ensure_keyboard_stand_animation()
                 event.accept()
                 return

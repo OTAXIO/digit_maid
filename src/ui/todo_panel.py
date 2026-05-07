@@ -107,8 +107,10 @@ class TodoPanel(QWidget):
         self._dragging = False
         self._drag_offset = QPoint()
         self._drag_handles = []
+        self._drag_border_margin = 10
         self._fold_anim = None
         self._editing_index = None
+        self._last_editing_index = None
         self._suppress_item_changed = False
         self._today_page_size = 6
         self._today_page_index = 0
@@ -427,6 +429,8 @@ class TodoPanel(QWidget):
         self.delete_btn = QPushButton("", self.today_list)
         self.delete_btn.setObjectName("icon_action_btn")
         # self.delete_btn.setToolTip("删除当前选中事项")
+        self.delete_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.delete_btn.pressed.connect(self._delete_selected_item)
         self.delete_btn.clicked.connect(self._delete_selected_item)
         self.delete_btn.setFixedSize(24, 24)
         self.delete_btn.hide()
@@ -568,6 +572,18 @@ class TodoPanel(QWidget):
         if current_grabber is not self:
             self.grabMouse()
 
+    def _is_border_drag(self, local_pos):
+        margin = self._drag_border_margin
+        rect = self.rect()
+        if rect.width() <= margin * 2 or rect.height() <= margin * 2:
+            return False
+        return (
+            local_pos.x() <= margin
+            or local_pos.x() >= rect.width() - margin - 1
+            or local_pos.y() <= margin
+            or local_pos.y() >= rect.height() - margin - 1
+        )
+
     def _stop_drag(self):
         self._dragging = False
         mouse_grabber_getter = getattr(QWidget, "mouseGrabber", None)
@@ -610,6 +626,7 @@ class TodoPanel(QWidget):
 
     def _clear_editing_state(self, clear_input=False, clear_selection=True):
         self._editing_index = None
+        self._last_editing_index = None
         if clear_selection:
             self.today_list.clearSelection()
             self.today_list.setCurrentRow(-1)
@@ -731,7 +748,7 @@ class TodoPanel(QWidget):
         return self._selected_date_qdate().toString("yyyy-MM-dd")
 
     def _default_ddl_text(self):
-        return QTime.currentTime().toString("HH:mm")
+        return "00:00"
 
     def _normalize_ddl_text(self, raw_text):
         text = str(raw_text).strip().replace("：", ":")
@@ -944,13 +961,19 @@ class TodoPanel(QWidget):
             self._clear_editing_state(clear_input=True)
             return
 
-        selected_items = self.today_list.selectedItems()
-        if selected_items:
-            row = self.today_list.row(selected_items[0])
+        index = None
+        if self._editing_index is not None and 0 <= self._editing_index < len(today_items):
+            index = self._editing_index
+        elif self._last_editing_index is not None and 0 <= self._last_editing_index < len(today_items):
+            index = self._last_editing_index
         else:
-            row = self.today_list.currentRow()
+            selected_items = self.today_list.selectedItems()
+            if selected_items:
+                row = self.today_list.row(selected_items[0])
+            else:
+                row = self.today_list.currentRow()
 
-        index = self._visible_row_to_model_index(row)
+            index = self._visible_row_to_model_index(row)
 
         if index is None or index < 0 or index >= len(today_items):
             self._set_status_text("请先点击一条事项后再删除")
@@ -961,6 +984,7 @@ class TodoPanel(QWidget):
             self.items_by_date.pop(today_key, None)
         else:
             self.items_by_date[today_key] = sorted(today_items, key=self._task_sort_key)
+        self._last_editing_index = None
 
         self.todo_input.clear()
         self._persist_items()
@@ -978,6 +1002,7 @@ class TodoPanel(QWidget):
             self.today_list.setCurrentItem(item)
             item.setSelected(True)
             self._editing_index = index
+            self._last_editing_index = index
             self._position_selected_delete_button()
             self.today_list.editItem(item)
             QTimer.singleShot(0, self._position_selected_delete_button)
@@ -1307,6 +1332,13 @@ class TodoPanel(QWidget):
             event.accept()
             return
         super().mouseMoveEvent(event)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._is_border_drag(event.position().toPoint()):
+            self._start_drag(event.globalPosition().toPoint())
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
