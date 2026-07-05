@@ -15,12 +15,16 @@ permissions:
   contents: write
 
 jobs:
-  build-macos-dmg:
+  build-macos-apple-silicon-dmg:
     runs-on: macos-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify Apple Silicon runner
+        run: |
+          test "$(uname -m)" = "arm64"
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -31,12 +35,13 @@ jobs:
         run: |
           chmod +x build_dmg.sh
           ./build_dmg.sh
+          mv dist/DigitMaid.dmg dist/DigitMaid-macos-apple-silicon.dmg
 
       - name: Upload DMG Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DigitMaid-dmg
-          path: dist/DigitMaid.dmg
+          name: DigitMaid-macos-apple-silicon-dmg
+          path: dist/DigitMaid-macos-apple-silicon.dmg
           if-no-files-found: error
 
   build-windows-exe:
@@ -56,19 +61,63 @@ jobs:
         run: |
           python -m pip install -r requirements.txt pyinstaller==6.16.0
           python -m PyInstaller --noconfirm --clean --windowed --onefile --name DigitMaid --icon icon.ico --add-data "resource;resource" --add-data "src/function/apps.yaml;src/function" --add-data "src/input/dialog_style.yaml;src/input" --add-data "src/ui/maid_animations.yaml;src/ui" src/core/run.py
+          Move-Item -Path dist\DigitMaid.exe -Destination dist\DigitMaid-windows-x86_64.exe
 
       - name: Upload EXE Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: DigitMaid-exe
-          path: dist/DigitMaid.exe
+          name: DigitMaid-windows-x86_64-exe
+          path: dist/DigitMaid-windows-x86_64.exe
+          if-no-files-found: error
+
+  build-linux-x86_64-packages:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify x86_64 runner
+        run: |
+          test "$(uname -m)" = "x86_64"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Install Linux package tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends rpm
+
+      - name: Build DEB and RPM
+        env:
+          DM_VERSION: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+        run: |
+          chmod +x scripts/build_linux_packages.sh
+          scripts/build_linux_packages.sh
+
+      - name: Upload DEB Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DigitMaid-linux-x86_64-deb
+          path: dist/DigitMaid-linux-x86_64.deb
+          if-no-files-found: error
+
+      - name: Upload RPM Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DigitMaid-linux-x86_64-rpm
+          path: dist/DigitMaid-linux-x86_64.rpm
           if-no-files-found: error
 
   publish-release:
     if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
     needs:
-      - build-macos-dmg
+      - build-macos-apple-silicon-dmg
       - build-windows-exe
+      - build-linux-x86_64-packages
     runs-on: ubuntu-latest
 
     steps:
@@ -84,6 +133,8 @@ jobs:
           tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
           target_commitish: ${{ github.sha }}
           files: |
-            release-assets/DigitMaid.dmg
-            release-assets/DigitMaid.exe
+            release-assets/DigitMaid-macos-apple-silicon.dmg
+            release-assets/DigitMaid-windows-x86_64.exe
+            release-assets/DigitMaid-linux-x86_64.deb
+            release-assets/DigitMaid-linux-x86_64.rpm
           generate_release_notes: true

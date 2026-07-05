@@ -11,6 +11,7 @@ except Exception:  # pragma: no cover
 RUN_KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_NAME = "DigitMaid"
 MAC_LABEL = "com.digitmaid.app"
+LINUX_DESKTOP_FILE = "digitmaid.desktop"
 
 
 def _is_windows():
@@ -21,6 +22,10 @@ def _is_macos():
     return sys.platform == "darwin"
 
 
+def _is_linux():
+    return sys.platform.startswith("linux")
+
+
 def _project_root():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     return os.path.abspath(os.path.join(current_dir, "../../"))
@@ -28,6 +33,13 @@ def _project_root():
 
 def _mac_launch_agent_path():
     return os.path.join(os.path.expanduser("~"), "Library", "LaunchAgents", f"{MAC_LABEL}.plist")
+
+
+def _linux_autostart_path():
+    config_home = os.environ.get("XDG_CONFIG_HOME")
+    if not config_home:
+        config_home = os.path.join(os.path.expanduser("~"), ".config")
+    return os.path.join(config_home, "autostart", LINUX_DESKTOP_FILE)
 
 
 def _build_startup_program_args():
@@ -42,6 +54,18 @@ def _build_startup_command():
     """Build command written to Windows Run key."""
     args = _build_startup_program_args()
     return " ".join([f'"{arg}"' for arg in args])
+
+
+def _desktop_exec_quote(arg):
+    arg = str(arg)
+    if not arg or any(ch.isspace() or ch in '\\"`$' for ch in arg):
+        escaped = arg.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    return arg
+
+
+def _build_linux_exec_command():
+    return " ".join(_desktop_exec_quote(arg) for arg in _build_startup_program_args())
 
 
 def is_startup_enabled():
@@ -66,6 +90,22 @@ def is_startup_enabled():
                 data = plistlib.load(f)
             args = data.get("ProgramArguments", [])
             return bool(data.get("Label") == MAC_LABEL and args == _build_startup_program_args())
+        except Exception:
+            return False
+
+    if _is_linux():
+        desktop_path = _linux_autostart_path()
+        if not os.path.exists(desktop_path):
+            return False
+
+        try:
+            with open(desktop_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            return (
+                "Name=DigitMaid" in content
+                and f"Exec={_build_linux_exec_command()}" in content
+                and "X-GNOME-Autostart-enabled=true" in content
+            )
         except Exception:
             return False
 
@@ -114,6 +154,33 @@ def set_startup_enabled(enabled):
             if os.path.exists(plist_path):
                 os.remove(plist_path)
             return True, "已关闭开机自启动（macOS）"
+        except OSError as e:
+            return False, f"设置开机自启动失败: {e}"
+
+    if _is_linux():
+        desktop_path = _linux_autostart_path()
+        try:
+            os.makedirs(os.path.dirname(desktop_path), exist_ok=True)
+            if enabled:
+                desktop_content = "\n".join(
+                    [
+                        "[Desktop Entry]",
+                        "Type=Application",
+                        "Name=DigitMaid",
+                        "Comment=Start DigitMaid desktop companion",
+                        f"Exec={_build_linux_exec_command()}",
+                        "Terminal=false",
+                        "X-GNOME-Autostart-enabled=true",
+                        "",
+                    ]
+                )
+                with open(desktop_path, "w", encoding="utf-8") as f:
+                    f.write(desktop_content)
+                return True, "已开启开机自启动（Linux）"
+
+            if os.path.exists(desktop_path):
+                os.remove(desktop_path)
+            return True, "已关闭开机自启动（Linux）"
         except OSError as e:
             return False, f"设置开机自启动失败: {e}"
 
