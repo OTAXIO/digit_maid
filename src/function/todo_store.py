@@ -5,6 +5,64 @@ from datetime import date, timedelta
 from PyQt6.QtCore import QStandardPaths
 
 
+def _normalize_ddl_time(raw_ddl):
+    if raw_ddl is None:
+        return ""
+
+    text = str(raw_ddl).strip().replace("：", ":")
+    if not text:
+        return ""
+
+    parts = text.split(":")
+    if len(parts) != 2:
+        return ""
+
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except ValueError:
+        return ""
+
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        return ""
+
+    return f"{hour:02d}:{minute:02d}"
+
+
+def _normalize_task_item(item):
+    if isinstance(item, dict):
+        text = str(item.get("text", "")).strip()
+        ddl = _normalize_ddl_time(item.get("ddl", ""))
+    else:
+        raw_text = str(item).strip().replace("：", ":")
+        ddl = ""
+        text = raw_text
+
+        segments = raw_text.split(None, 1)
+        if segments and ":" in segments[0]:
+            parsed_ddl = _normalize_ddl_time(segments[0])
+            if parsed_ddl:
+                ddl = parsed_ddl
+                text = segments[1].strip() if len(segments) > 1 else ""
+
+    if not text:
+        return None
+
+    return {"ddl": ddl, "text": text}
+
+
+def _task_sort_key(task):
+    ddl = str(task.get("ddl", "")).strip()
+    if ddl:
+        try:
+            hour_str, minute_str = ddl.split(":", 1)
+            minute_of_day = int(hour_str) * 60 + int(minute_str)
+            return (0, minute_of_day, task.get("text", ""))
+        except ValueError:
+            pass
+    return (1, 24 * 60, task.get("text", ""))
+
+
 def _get_app_data_dir():
     data_dir = QStandardPaths.writableLocation(
         QStandardPaths.StandardLocation.AppDataLocation
@@ -27,9 +85,9 @@ def _build_default_items():
         key = target_date.isoformat()
         bucket = items.setdefault(key, [])
         for task in task_list:
-            text = str(task).strip()
-            if text:
-                bucket.append(text)
+            normalized = _normalize_task_item(task)
+            if normalized is not None:
+                bucket.append(normalized)
 
     add_items(
         today,
@@ -69,12 +127,12 @@ def _normalize_items(items_by_date):
 
         cleaned_items = []
         for item in raw_items:
-            text = str(item).strip()
-            if text:
-                cleaned_items.append(text)
+            normalized_item = _normalize_task_item(item)
+            if normalized_item is not None:
+                cleaned_items.append(normalized_item)
 
         if cleaned_items:
-            normalized[normalized_date] = cleaned_items
+            normalized[normalized_date] = sorted(cleaned_items, key=_task_sort_key)
 
     return normalized
 
