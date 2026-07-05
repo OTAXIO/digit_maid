@@ -2,7 +2,7 @@
 from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint, QSettings, Qt
 import os
-from src.function import screen_shot, open_app, startup
+from src.function import screen_shot, open_app, startup, codex_status
 from src.function.open_app import load_app_paths
 from src.input import choice_dialog
 from src.input.choice_dialog import load_dialog_theme
@@ -87,6 +87,13 @@ class MaidActions:
             return False
 
         if self._is_todo_panel_visible():
+            self._set_todo_panel_open_state(True)
+            self.parent.menu_interact_mode = True
+            if hasattr(self.parent, "_stop_inactivity_timer"):
+                self.parent._stop_inactivity_timer(reset_stage=True)
+            if hasattr(self.parent, "wander_timer"):
+                self.parent.wander_timer.stop()
+            self.parent.play_action("interact", force_loop=True)
             self.todo_panel.raise_()
             self.todo_panel.activateWindow()
             return True
@@ -96,14 +103,32 @@ class MaidActions:
         else:
             self.todo_panel.on_close_callback = self.on_todo_panel_closed
 
+        self.todo_panel.reload_data()
         self._position_todo_panel(self.todo_panel)
         self.todo_panel.show()
         self.todo_panel.raise_()
         self.todo_panel.activateWindow()
+        self._set_todo_panel_open_state(True)
+
+        self.parent.menu_interact_mode = True
+        if hasattr(self.parent, "_stop_inactivity_timer"):
+            self.parent._stop_inactivity_timer(reset_stage=True)
+        if hasattr(self.parent, "wander_timer"):
+            self.parent.wander_timer.stop()
+        self.parent.play_action("interact", force_loop=True)
         return True
 
     def on_todo_panel_closed(self):
         self._set_todo_panel_open_state(False)
+        controller = getattr(self.parent, "menu_controller", None)
+        menu_open = controller.is_menu_open if controller is not None else False
+        if (
+            not menu_open
+            and not getattr(self.parent, "_custom_scale_adjusting", False)
+            and not getattr(self.parent, "_edge_hidden", False)
+        ):
+            self.parent.menu_interact_mode = False
+            self.parent.play_action("idle")
         if hasattr(self.parent, "force_on_top"):
             self.parent.force_on_top()
 
@@ -122,41 +147,13 @@ class MaidActions:
         if mode not in self.FALL_MODE_LABELS:
             return False
 
-        cfg_path = self._get_maid_animation_cfg_path()
-        try:
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-
-            replaced = False
-            for idx, line in enumerate(lines):
-                if line.strip().startswith("fall_mode:"):
-                    lines[idx] = f"fall_mode: {mode}\n"
-                    replaced = True
-                    break
-
-            if not replaced:
-                insert_at = 0
-                for idx, line in enumerate(lines):
-                    if line.strip().startswith("base_dir:"):
-                        insert_at = idx + 1
-                        break
-                lines.insert(insert_at, f"fall_mode: {mode}\n")
-
-            with open(cfg_path, "w", encoding="utf-8", newline="") as f:
-                f.writelines(lines)
-        except Exception as e:
-            msg = f"设置下落模式失败: {e}"
-            print(msg)
-            self.dialogue.show_message("下落模式", msg)
-            return False
-
         if hasattr(self.parent, "anim_cfg") and isinstance(self.parent.anim_cfg, dict):
             self.parent.anim_cfg["fall_mode"] = mode
             self.parent.anim_cfg["smooth_fall"] = (mode == "smooth")
 
-        # 新增：将当前下落模式保存到 QSettings，实现重启后记忆
         settings = QSettings("DigitMaid", "DigitMaid")
         settings.setValue("mode/fall_mode", mode)
+        settings.sync()
 
         if mode == "none" and getattr(self.parent, "_is_falling", False):
             if hasattr(self.parent, "_stop_fall"):
@@ -177,42 +174,12 @@ class MaidActions:
         if mode not in self.IDLE_MODE_LABELS:
             return False
 
-        cfg_path = self._get_maid_animation_cfg_path()
-        try:
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-
-            replaced = False
-            for idx, line in enumerate(lines):
-                if line.strip().startswith("idle_mode:"):
-                    lines[idx] = f"idle_mode: {mode}\n"
-                    replaced = True
-                    break
-
-            if not replaced:
-                insert_at = 0
-                for idx, line in enumerate(lines):
-                    stripped = line.strip()
-                    if stripped.startswith("fall_mode:"):
-                        insert_at = idx + 1
-                        break
-                    if stripped.startswith("base_dir:"):
-                        insert_at = idx + 1
-                lines.insert(insert_at, f"idle_mode: {mode}\n")
-
-            with open(cfg_path, "w", encoding="utf-8", newline="") as f:
-                f.writelines(lines)
-        except Exception as e:
-            msg = f"设置待机模式失败: {e}"
-            print(msg)
-            self.dialogue.show_message("待机模式", msg)
-            return False
-
         if hasattr(self.parent, "anim_cfg") and isinstance(self.parent.anim_cfg, dict):
             self.parent.anim_cfg["idle_mode"] = mode
 
         settings = QSettings("DigitMaid", "DigitMaid")
         settings.setValue("mode/idle_mode", mode)
+        settings.sync()
 
         # 切换待机模式后重置待机状态机，避免沿用旧模式的阶段与计时。
         if hasattr(self.parent, "wander_timer"):
@@ -250,6 +217,30 @@ class MaidActions:
             ok, detail = False, "当前窗口不支持键盘控制移动"
 
         self.dialogue.show_message("控制移动", detail)
+        return ok
+
+    def show_codex_status(self):
+        if hasattr(self.parent, "play_action"):
+            self.parent.play_action("interact", force_loop=True)
+        title, content = codex_status.get_codex_status_message()
+        self.dialogue.show_message(title, content)
+        return True
+
+    def _is_always_on_top_enabled(self):
+        if hasattr(self.parent, "is_always_on_top_enabled"):
+            return self.parent.is_always_on_top_enabled()
+        return bool(getattr(self.parent, "always_on_top", False))
+
+    def toggle_always_on_top(self, enabled=None):
+        if enabled is None:
+            enabled = not self._is_always_on_top_enabled()
+
+        if hasattr(self.parent, "set_always_on_top_enabled"):
+            ok, result = self.parent.set_always_on_top_enabled(bool(enabled))
+        else:
+            ok, result = False, "当前窗口不支持始终置顶设置"
+
+        self.dialogue.show_message("始终置顶", result)
         return ok
 
     def _set_custom_maid_scale(self):
@@ -466,6 +457,10 @@ class MaidActions:
         action_keyboard_control.triggered.connect(self.start_keyboard_control)
         tool_menu.addAction(action_keyboard_control)
 
+        action_codex_status = QAction('Codex进程', self.parent)
+        action_codex_status.triggered.connect(lambda checked: self.show_codex_status())
+        tool_menu.addAction(action_codex_status)
+
         action_todo = QAction('待办', self.parent)
         action_todo.triggered.connect(self.show_todo_panel)
         menu.addAction(action_todo)
@@ -514,6 +509,12 @@ class MaidActions:
         action_startup.setChecked(startup.is_startup_enabled())
         action_startup.triggered.connect(lambda checked: self.toggle_startup(checked))
         settings_menu.addAction(action_startup)
+
+        action_always_on_top = QAction('始终置顶', self.parent)
+        action_always_on_top.setCheckable(True)
+        action_always_on_top.setChecked(self._is_always_on_top_enabled())
+        action_always_on_top.triggered.connect(lambda checked: self.toggle_always_on_top(checked))
+        settings_menu.addAction(action_always_on_top)
 
         current_mode = self._get_current_fall_mode()
         current_mode_label = self.FALL_MODE_LABELS.get(current_mode, "缓降飘落")
@@ -580,6 +581,14 @@ class MaidActions:
 
             if getattr(self.parent, "_custom_scale_adjusting", False):
                 # 预览态下若菜单意外关闭，不要回 idle；保持交互态，允许继续滚轮调节后再手动保存/退出
+                self.parent.menu_interact_mode = True
+                self.parent.play_action("interact", force_loop=True)
+                if hasattr(self.parent, "force_on_top"):
+                    self.parent.force_on_top()
+                return
+
+            if self._is_todo_panel_visible():
+                self._set_todo_panel_open_state(True)
                 self.parent.menu_interact_mode = True
                 self.parent.play_action("interact", force_loop=True)
                 if hasattr(self.parent, "force_on_top"):
@@ -670,10 +679,12 @@ class MaidActions:
             {'label': '下落模式', 'action': fall_mode_sub_items},
             {'label': '待机模式', 'action': idle_mode_sub_items},
             {'label': '关闭自启动' if startup.is_startup_enabled() else '开启自启动', 'action': self.toggle_startup},
+            {'label': '关闭置顶' if self._is_always_on_top_enabled() else '开启置顶', 'action': self.toggle_always_on_top},
         ]
         tools_sub_items = [
             {'label': '截屏', 'action': screenshot_sub_items},
             {'label': '控制移动', 'action': self.start_keyboard_control},
+            {'label': 'Codex', 'action': self.show_codex_status},
         ]
 
         top_items = [
@@ -841,4 +852,3 @@ class MaidActions:
         self.dialogue.show_message("开机自启动", result)
 
         return ok
-

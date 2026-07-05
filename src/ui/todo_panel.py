@@ -144,9 +144,9 @@ class TodoPanel(QWidget):
         card_style = (
             """
             QFrame#todo_card {
-                background-color: #ffffff;
-                border: 4px solid #c41c1c;
-                border-radius: 18px;
+                background-color: #fffdfb;
+                border: 2px solid #c41c1c;
+                border-radius: 8px;
             }
             QFrame#todo_card * {
                 font-family: "__UI_FONT_FAMILY__";
@@ -154,7 +154,7 @@ class TodoPanel(QWidget):
             }
             QLabel#title_label {
                 color: #2f2220;
-                font-size: 22px;
+                font-size: 20px;
                 font-weight: 700;
             }
             QLabel#subtitle_label {
@@ -178,23 +178,22 @@ class TodoPanel(QWidget):
                 min-height: 30px;
                 max-height: 30px;
                 border: none;
-                border-radius: 15px;
+                border-radius: 8px;
                 background-color: #c41c1c;
                 color: white;
                 font-size: 17px;
                 font-weight: 800;
             }
             QPushButton#close_btn:hover {
-                background-color: #c41c1c;
+                background-color: #e1372f;
             }
             QPushButton#close_btn:pressed {
-                background-color: #c41c1c;
+                background-color: #8f1515;
             }
-            QPushButton#expand_btn,
-            QPushButton#today_btn {
-                border: 2px solid #c41c1c;
-                border-radius: 10px;
-                background-color: #ffffff;
+            QPushButton#expand_btn {
+                border: 1px solid #d65b54;
+                border-radius: 6px;
+                background-color: #fff8f7;
                 color: #5f3d37;
                 padding: 4px 10px;
                 font-size: 12px;
@@ -216,6 +215,11 @@ class TodoPanel(QWidget):
             }
             QPushButton#todo_page_btn:hover {
                 background-color: #c41c1c;
+                color: #ffffff;
+            }
+            QPushButton#expand_btn:pressed {
+                background-color: #8f1515;
+                color: #ffffff;
             }
             QPushButton#todo_page_btn:disabled {
                 border-color: #e4c0bb;
@@ -231,25 +235,25 @@ class TodoPanel(QWidget):
                 qproperty-alignment: AlignCenter;
             }
             QListWidget {
-                background-color: #ffffff;
-                border: 2px solid #c41c1c;
-                border-radius: 12px;
+                background-color: #fffaf9;
+                border: 1px solid #ead2cf;
+                border-radius: 8px;
                 padding: 6px;
                 font-size: 13px;
                 color: #2f2220;
             }
             QListWidget::item {
                 padding: 6px 8px;
-                border-radius: 8px;
+                border-radius: 6px;
             }
             QListWidget::item:selected {
                 background-color: #c41c1c;
-                color: #2f2220;
+                color: #ffffff;
             }
             QLineEdit {
                 background-color: #ffffff;
-                border: 2px solid #c41c1c;
-                border-radius: 10px;
+                border: 1px solid #ead2cf;
+                border-radius: 7px;
                 padding: 7px 9px;
                 color: #2f2220;
                 font-size: 13px;
@@ -269,16 +273,19 @@ class TodoPanel(QWidget):
                 min-height: 34px;
                 max-height: 34px;
                 border: none;
-                border-radius: 8px;
+                border-radius: 6px;
                 background: transparent;
             }
             QPushButton#icon_action_btn:hover {
                 background-color: rgba(196, 28, 28, 30);
             }
+            QPushButton#icon_action_btn:pressed {
+                background-color: rgba(196, 28, 28, 55);
+            }
             QCalendarWidget {
-                background-color: #ffffff;
-                border: 2px solid #ffd2cd;
-                border-radius: 12px;
+                background-color: #fffaf9;
+                border: 1px solid #ead2cf;
+                border-radius: 8px;
             }
             QCalendarWidget QWidget {
                 alternate-background-color: #ffffff;
@@ -1253,6 +1260,9 @@ class TodoPanel(QWidget):
 
     def reload_data(self):
         self.items_by_date = load_todo_items_by_date()
+        self.calendar.blockSignals(True)
+        self.calendar.setSelectedDate(QDate.currentDate())
+        self.calendar.blockSignals(False)
         normalized_items = {}
         for date_key, tasks in list(self.items_by_date.items()):
             normalized_tasks = self._normalize_task_list(tasks)
@@ -1263,13 +1273,12 @@ class TodoPanel(QWidget):
         self._today_visible_indexes = []
 
         self._clear_editing_state(clear_input=True)
+        self._sync_daily_section_caption()
         self._refresh_today_list()
         self._refresh_calendar_marks()
         self._refresh_month_caption()
         self._refresh_month_list()
-        self.calendar.setSelectedDate(QDate.currentDate())
-        self._sync_daily_section_caption()
-        self._refresh_today_list()
+        self._set_status_text("今日与本月计划")
         if self._month_expanded:
             self.resize(self.expanded_width, self.panel_height)
             self.right_section.setVisible(True)
@@ -1348,9 +1357,15 @@ class TodoPanel(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self.keep_inside_screen(reference_point=QCursor.pos())
+        QTimer.singleShot(0, self.todo_input.setFocus)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
+            editor = self.today_list.findChild(QLineEdit)
+            if editor is not None:
+                self._finish_today_inline_edit(save=True, clear_selection=True)
+            else:
+                self._close_from_symbol()
             event.accept()
             return
         super().keyPressEvent(event)

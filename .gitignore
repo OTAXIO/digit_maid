@@ -7,6 +7,7 @@ dist/
 *.spec
 !DigitMaid.spec
 !DigitMaid.mac.spec
+!DigitMaid.linux.spec
 *.pkg
 *.exe
 *.spine

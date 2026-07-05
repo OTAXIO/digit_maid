@@ -1,6 +1,7 @@
 import os
 import subprocess
 import platform
+import shutil
 
 _APP_PATH_CACHE = {
     "mtime": None,
@@ -39,6 +40,27 @@ def _launch_macos_app(target):
         return
 
     subprocess.run(["open", "-a", target], check=True, capture_output=True)
+
+
+def _is_macos_path(value):
+    if not value:
+        return False
+    normalized = value.replace("\\", "/")
+    return normalized.endswith(".app") or normalized.startswith("/Applications/")
+
+
+def _launch_linux_app(target):
+    """Launch app on Linux from an absolute path or PATH command."""
+    if os.path.exists(target):
+        subprocess.Popen([target], start_new_session=True)
+        return
+
+    resolved = shutil.which(target)
+    if resolved:
+        subprocess.Popen([resolved], start_new_session=True)
+        return
+
+    raise FileNotFoundError(target)
 
 def load_app_paths():
     """解析简单的 YAML 文件读取应用路径配置"""
@@ -132,8 +154,28 @@ def open_application(app_name):
                 return f"尝试启动 {app_name}"
             except (FileNotFoundError, subprocess.CalledProcessError):
                 return f"找不到应用: {app_name}"
+        elif system == "Linux":
+            app_configs = load_app_paths()
+
+            for keyword, paths in app_configs.items():
+                if keyword.lower() in app_name:
+                    for path in paths:
+                        if _is_windows_path(path) or _is_macos_path(path):
+                            continue
+                        try:
+                            _launch_linux_app(path)
+                            return f"已启动{keyword}"
+                        except FileNotFoundError:
+                            continue
+                    return f"未找到{keyword}，请在 apps.yaml 中添加 Linux 可执行命令或路径"
+
+            try:
+                _launch_linux_app(app_name)
+                return f"尝试启动 {app_name}"
+            except FileNotFoundError:
+                return f"找不到应用: {app_name}"
         else:
-            return "当前仅支持 Windows / macOS 系统的简单应用启动"
+            return "当前系统暂不支持简单应用启动"
             
     except Exception as e:
         return f"启动失败: {e}"

@@ -26,6 +26,7 @@ class MaidWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.is_macos = sys.platform == "darwin"
+        self.always_on_top = self._load_always_on_top_setting()
 
         # 素材未加载时的初始窗口大小（真实显示大小由 GIF 帧尺寸决定）
         self.default_maid_width = 85
@@ -41,6 +42,8 @@ class MaidWindow(QWidget):
         self._edge_hidden = False
         self._edge_hidden_side = None
         self._todo_panel_open = False
+        self._is_dragging = False
+        self._is_double_click = False
         self._last_context_menu_request_at = 0.0
 
         # 统一管理菜单可见状态与操作权限
@@ -123,8 +126,7 @@ class MaidWindow(QWidget):
         # macOS 下不启用，防止一直压在其他应用上方影响操作。
         self.topmost_timer = QTimer(self)
         self.topmost_timer.timeout.connect(self._keep_on_top)
-        if not self.is_macos:
-            self.topmost_timer.start(1000)  # 每秒置顶一次，降低事件循环压力
+        self._sync_topmost_timer()
 
         # 先播放 start 动画（若配置不存在则会在底层 fallback 到 idle 或返回 False）
         if not self.play_action("start", force_loop=False):
@@ -134,18 +136,70 @@ class MaidWindow(QWidget):
 
 #--------------------------------窗口层级与菜单状态----------------------------------------
     def _keep_on_top(self):
-        if self.is_macos:
+        if not self.always_on_top:
             return
         if self._is_menu_ui_active() or self._custom_scale_adjusting:
             return
         # 仅提升Z轴顺序，不窃取焦点，避免影响用户打字
         self.raise_()
 
+    def _default_always_on_top(self):
+        return not self.is_macos
+
+    def _load_always_on_top_setting(self):
+        settings = QSettings("DigitMaid", "DigitMaid")
+        saved_value = settings.value("ui/always_on_top", None)
+        if saved_value is None:
+            return self._default_always_on_top()
+
+        if isinstance(saved_value, bool):
+            return saved_value
+
+        value = str(saved_value).strip().lower()
+        if value in ("1", "true", "yes", "on"):
+            return True
+        if value in ("0", "false", "no", "off"):
+            return False
+        return self._default_always_on_top()
+
+    def _sync_topmost_timer(self):
+        if not hasattr(self, "topmost_timer"):
+            return
+
+        if self.always_on_top:
+            if not self.topmost_timer.isActive():
+                self.topmost_timer.start(1000)
+        else:
+            self.topmost_timer.stop()
+
+    def is_always_on_top_enabled(self):
+        return bool(getattr(self, "always_on_top", False))
+
+    def set_always_on_top_enabled(self, enabled):
+        enabled = bool(enabled)
+        if self.always_on_top == enabled:
+            return True, "已开启始终置顶" if enabled else "已关闭始终置顶"
+
+        self.always_on_top = enabled
+        settings = QSettings("DigitMaid", "DigitMaid")
+        settings.setValue("ui/always_on_top", enabled)
+        settings.sync()
+
+        was_visible = self.isVisible()
+        self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, enabled)
+        if was_visible:
+            self.show()
+            if enabled:
+                self.raise_()
+
+        self._sync_topmost_timer()
+        return True, "已开启始终置顶" if enabled else "已关闭始终置顶"
+
     def _is_menu_ui_active(self):
         if getattr(self, "menu_interact_mode", False):
             return True
 
-        if getattr(self, "_todo_panel_open", False):
+        if self._is_todo_panel_effectively_open():
             return True
 
         controller = getattr(self, "menu_controller", None)
@@ -159,15 +213,23 @@ class MaidWindow(QWidget):
         if actions is None:
             return False
 
-        todo_panel = getattr(actions, "todo_panel", None)
-        if todo_panel is not None and bool(getattr(todo_panel, "isVisible", lambda: False)()):
-            return True
-
         circular_menu = getattr(actions, "circular_menu", None)
         if circular_menu is None:
             return False
 
         return bool(getattr(circular_menu, "isVisible", lambda: False)())
+
+    def _is_todo_panel_effectively_open(self):
+        if getattr(self, "_todo_panel_open", False):
+            return True
+
+        controller = getattr(self, "menu_controller", None)
+        if controller is not None and getattr(controller, "is_todo_panel_open", False):
+            return True
+
+        actions = getattr(self, "maid_actions", None)
+        todo_panel = getattr(actions, "todo_panel", None) if actions is not None else None
+        return todo_panel is not None and bool(getattr(todo_panel, "isVisible", lambda: False)())
 
     def _operation_allowed(self, operation_name):
         if self._edge_hidden:
@@ -259,7 +321,7 @@ class MaidWindow(QWidget):
     def initUI(self):
         # ... (保持不变)
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
-        if not self.is_macos:
+        if self.always_on_top:
             flags |= Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -439,38 +501,9 @@ class MaidWindow(QWidget):
         frame_size = movie.currentImage().size()
         if not frame_size.isEmpty():
             self._source_frame_size = QSize(frame_size.width(), frame_size.height())
-            current_pos = self.pos()
-            old_height = self.height()
-            screen_geo = self.screen().availableGeometry()
-
             target_width, target_height = self._get_target_maid_size()
-            
-            # 保持桌宠的左下角不发生偏移（防止不同宽高且大小不一的动作导致位置乱跳）
-            left_x = current_pos.x()
-            bottom_y = current_pos.y() + old_height
-            
-            new_x = left_x
-            new_y = bottom_y - target_height
-            
-            # 如果右下角超出屏幕则向左/向上挤
-            if new_x + target_width > screen_geo.right():
-                new_x = screen_geo.right() - target_width
-            bottom_overlap = self._bottom_overlap_px()
-            if new_y + target_height > screen_geo.bottom() + bottom_overlap:
-                new_y = screen_geo.bottom() + bottom_overlap - target_height
-                
-            # 兜底保证左上角不越界
-            new_x = max(screen_geo.left(), new_x)
-            new_y = max(screen_geo.top(), new_y)
-            
             movie.setScaledSize(QSize(target_width, target_height))
-            self.maid_label.setFixedSize(target_width, target_height)
-            # 先刷新布局约束，再执行缩放和位移；否则从大动作切回小动作时
-            # 可能只移动到新 y 而尺寸仍被旧约束卡住，出现“逐次下沉”。
-            if self.layout() is not None:
-                self.layout().activate()
-            self.resize(target_width, target_height)
-            self.move(new_x, new_y)
+            self._resize_maid_preserving_bottom_left(target_width, target_height)
         if force_loop is None:
             self.current_loop = loop_value
         else:
@@ -514,6 +547,30 @@ class MaidWindow(QWidget):
         target_width = max(1, int(round(base_width * self.user_scale)))
         target_height = max(1, int(round(base_height * self.user_scale)))
         return target_width, target_height
+
+    def _resize_maid_preserving_bottom_left(self, target_width, target_height):
+        current_pos = self.pos()
+        old_height = self.height()
+        screen_geo = self.screen().availableGeometry()
+
+        new_x = current_pos.x()
+        bottom_y = current_pos.y() + old_height
+        new_y = bottom_y - target_height
+
+        if new_x + target_width > screen_geo.right():
+            new_x = screen_geo.right() - target_width
+        bottom_overlap = self._bottom_overlap_px()
+        if new_y + target_height > screen_geo.bottom() + bottom_overlap:
+            new_y = screen_geo.bottom() + bottom_overlap - target_height
+
+        new_x = max(screen_geo.left(), new_x)
+        new_y = max(screen_geo.top(), new_y)
+
+        self.maid_label.setFixedSize(target_width, target_height)
+        if self.layout() is not None:
+            self.layout().activate()
+        self.resize(target_width, target_height)
+        self.move(new_x, new_y)
 
     def _clamp_user_scale(self, value):
         return max(self.min_user_scale, min(self.max_user_scale, value))
@@ -828,29 +885,7 @@ class MaidWindow(QWidget):
 
         # 没有当前动画时，也按默认尺寸缩放窗口，保持设置即时生效
         target_width, target_height = self._get_target_maid_size()
-        current_pos = self.pos()
-        old_height = self.height()
-        screen_geo = self.screen().availableGeometry()
-
-        left_x = current_pos.x()
-        bottom_y = current_pos.y() + old_height
-        new_x = left_x
-        new_y = bottom_y - target_height
-
-        if new_x + target_width > screen_geo.right():
-            new_x = screen_geo.right() - target_width
-        bottom_overlap = self._bottom_overlap_px()
-        if new_y + target_height > screen_geo.bottom() + bottom_overlap:
-            new_y = screen_geo.bottom() + bottom_overlap - target_height
-
-        new_x = max(screen_geo.left(), new_x)
-        new_y = max(screen_geo.top(), new_y)
-
-        self.maid_label.setFixedSize(target_width, target_height)
-        if self.layout() is not None:
-            self.layout().activate()
-        self.resize(target_width, target_height)
-        self.move(new_x, new_y)
+        self._resize_maid_preserving_bottom_left(target_width, target_height)
         if not self._custom_scale_adjusting:
             self._save_persisted_user_scale()
         return True, f"当前缩放倍数: {self.user_scale:.2f}"
@@ -860,31 +895,8 @@ class MaidWindow(QWidget):
             return False
 
         target_width, target_height = self._get_target_maid_size()
-
-        current_pos = self.pos()
-        old_height = self.height()
-        screen_geo = self.screen().availableGeometry()
-
-        left_x = current_pos.x()
-        bottom_y = current_pos.y() + old_height
-        new_x = left_x
-        new_y = bottom_y - target_height
-
-        if new_x + target_width > screen_geo.right():
-            new_x = screen_geo.right() - target_width
-        bottom_overlap = self._bottom_overlap_px()
-        if new_y + target_height > screen_geo.bottom() + bottom_overlap:
-            new_y = screen_geo.bottom() + bottom_overlap - target_height
-
-        new_x = max(screen_geo.left(), new_x)
-        new_y = max(screen_geo.top(), new_y)
-
         self.current_movie.setScaledSize(QSize(target_width, target_height))
-        self.maid_label.setFixedSize(target_width, target_height)
-        if self.layout() is not None:
-            self.layout().activate()
-        self.resize(target_width, target_height)
-        self.move(new_x, new_y)
+        self._resize_maid_preserving_bottom_left(target_width, target_height)
         return True
 
 #--------------------------------动画帧回调与动作收尾--------------------------------
@@ -1041,7 +1053,7 @@ class MaidWindow(QWidget):
         self._start_inactivity_timer(15000) # 15秒后按待机模式进入下一阶段
 
     def _start_inactivity_timer(self, duration_ms):
-        if (self._edge_hidden | self._keyboard_control_mode):
+        if self._edge_hidden or self._keyboard_control_mode:
             self._inactivity_deadline = None
             self.inactivity_timer.stop()
             return
@@ -1067,7 +1079,7 @@ class MaidWindow(QWidget):
             self.inactivity_stage = 0
 
     def _on_inactivity_timeout(self):
-        if (self._edge_hidden |self._keyboard_control_mode):
+        if self._edge_hidden or self._keyboard_control_mode:
             self._stop_inactivity_timer(reset_stage=True)
             self.wander_timer.stop()
             return
@@ -1209,21 +1221,7 @@ class MaidWindow(QWidget):
         else:
             self._last_context_menu_request_at = time.monotonic()
 
-        if self._keyboard_control_mode:
-            if hasattr(self, "dialogue_system"):
-                self.dialogue_system.show_message("控制移动", "控制移动中，按 Esc 退出后再操作。")
-            return False
-
-        todo_open = bool(getattr(self, "_todo_panel_open", False))
-        controller = getattr(self, "menu_controller", None)
-        if controller is not None and getattr(controller, "is_todo_panel_open", False):
-            todo_open = True
-
-        todo_panel = getattr(self.maid_actions, "todo_panel", None)
-        if todo_panel is not None and bool(getattr(todo_panel, "isVisible", lambda: False)()):
-            todo_open = True
-
-        if todo_open:
+        if self._is_todo_panel_effectively_open():
             self.menu_interact_mode = True
             self._stop_inactivity_timer(reset_stage=True)
             self.wander_timer.stop()
@@ -1424,28 +1422,6 @@ class MaidWindow(QWidget):
                 self._stop_inactivity_timer()
               
         elif event.button() == Qt.MouseButton.RightButton:
-            if self._keyboard_control_mode:
-                if hasattr(self, "dialogue_system"):
-                    self.dialogue_system.show_message("控制移动", "控制移动中，按 Esc 退出后再操作。")
-                event.ignore()
-                return
-
-            todo_open = bool(getattr(self, "_todo_panel_open", False))
-            controller = getattr(self, "menu_controller", None)
-            if controller is not None and getattr(controller, "is_todo_panel_open", False):
-                todo_open = True
-
-            todo_panel = getattr(self.maid_actions, "todo_panel", None)
-            if todo_panel is not None and bool(getattr(todo_panel, "isVisible", lambda: False)()):
-                todo_open = True
-
-            if todo_open:
-                self.menu_interact_mode = True
-                self._stop_inactivity_timer(reset_stage=True)
-                self.wander_timer.stop()
-                self.play_action("interact", force_loop=True)
-                self.dialogue_system.show_message("待办", "请先点击待办框右上角关闭按钮。")
-                return
             self._request_context_menu(event.globalPosition().toPoint(), source="mouse")
 
     def contextMenuEvent(self, event):
@@ -1683,14 +1659,15 @@ class MaidWindow(QWidget):
 #--------------------------------窗口控制事件--------------------------------
     def force_on_top(self):
         """强制将窗口保持在屏幕最顶层"""
-        # macOS 下避免主动抢焦点，防止影响其他应用操作。
         self.show()
-        if self.is_macos:
+
+        if not self.always_on_top and self.is_macos:
             return
 
         # 使用 Qt 的方式进行窗口置顶，避免在 Windows 下重复 setWindowFlags 产生僵尸窗口句柄
         self.raise_()
-        self.activateWindow()
+        if not self.is_macos:
+            self.activateWindow()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1700,4 +1677,3 @@ if __name__ == '__main__':
     maid = MaidWindow()
     maid.show()
     sys.exit(app.exec())
-

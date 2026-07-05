@@ -2,13 +2,35 @@
 import os
 from PyQt6.QtWidgets import QWidget, QPushButton, QApplication
 from PyQt6.QtCore import Qt, QPropertyAnimation, QRect, QEasingCurve, QPoint, QTimer, QPointF
-from PyQt6.QtGui import QPainter, QColor, QPen, QPainterPath
+from PyQt6.QtGui import QPainter, QColor, QPen, QPainterPath, QFontMetrics
 
 from .choice_dialog import load_dialog_theme
 
 class BubbleButton(QPushButton):
+    LABEL_BREAKS = {
+        "存到桌面": "存到\n桌面",
+        "存到默认": "存到\n默认",
+        "不保存": "不\n保存",
+        "大小调整": "大小\n调整",
+        "默认大小": "默认\n大小",
+        "自定义大小": "自定义\n大小",
+        "下落模式": "下落\n模式",
+        "待机模式": "待机\n模式",
+        "缓降飘落": "缓降\n飘落",
+        "快速直落": "快速\n直落",
+        "默认模式": "默认\n模式",
+        "运动模式": "运动\n模式",
+        "懒惰模式": "懒惰\n模式",
+        "控制移动": "控制\n移动",
+        "开启自启动": "开启\n自启动",
+        "关闭自启动": "关闭\n自启动",
+        "开启置顶": "开启\n置顶",
+        "关闭置顶": "关闭\n置顶",
+        "Codex进程": "Codex\n进程",
+    }
+
     def __init__(self, text, is_back=False, icon_path=None, ui_scale=1.0, text_color="white", parent=None):
-        super().__init__(text, parent)
+        super().__init__(self._display_text(text), parent)
         self.image_mode = False
         self.text_color = text_color or "white"
         # 按菜单缩放比例缩放按钮，缩小时下限为 0.4
@@ -18,6 +40,8 @@ class BubbleButton(QPushButton):
         self.text_hover_size = max(self.default_size, int(self.default_size * 1.08))
         self.image_hover_size = max(self.image_size, int(self.image_size * 1.05))
         self.setFixedSize(self.default_size, self.default_size)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         
         # 加载描边配置
         theme = load_dialog_theme()
@@ -28,7 +52,11 @@ class BubbleButton(QPushButton):
             self.setFixedSize(self.image_size, self.image_size)
             bg_url = icon_path.replace("\\", "/")
             display_color = "transparent" if self.enable_outline else self.text_color
-            font_px = max(7, int(15 * self.ui_scale))
+            font_px = self._fit_font_px(base_px=max(9, int(15 * self.ui_scale)), min_px=7)
+            font = self.font()
+            font.setBold(True)
+            font.setPixelSize(font_px)
+            self.setFont(font)
             self.setStyleSheet(f"""
                 QPushButton {{
                     border-image: url('{bg_url}');
@@ -39,6 +67,12 @@ class BubbleButton(QPushButton):
                 }}
             """)
             return
+
+        font_px = self._fit_font_px(base_px=max(9, int(14 * self.ui_scale)), min_px=7)
+        font = self.font()
+        font.setBold(True)
+        font.setPixelSize(font_px)
+        self.setFont(font)
 
         if is_back:
             bg_color = "#cfcecd"
@@ -59,6 +93,7 @@ class BubbleButton(QPushButton):
                 color: {self.text_color};
                 border-radius: {radius_px}px;
                 font-weight: bold;
+                font-size: {font_px}px;
                 border: {border_px}px solid {border_color};
             }}
             QPushButton:hover {{
@@ -68,6 +103,34 @@ class BubbleButton(QPushButton):
                 background-color: {pressed_bg};
             }}
         """)
+
+    @classmethod
+    def _display_text(cls, text):
+        text = str(text)
+        if "\n" in text:
+            return text
+        if text in cls.LABEL_BREAKS:
+            return cls.LABEL_BREAKS[text]
+        if len(text) <= 4 or text.isascii():
+            return text
+        split_at = 3 if len(text) >= 6 else 2
+        return f"{text[:split_at]}\n{text[split_at:]}"
+
+    def _fit_font_px(self, base_px, min_px=7):
+        lines = self.text().splitlines() or [self.text()]
+        available_width = max(12, int(self.width() * 0.78))
+        available_height = max(10, int(self.height() * (0.58 if self.image_mode else 0.68)))
+        font = self.font()
+        font.setBold(True)
+
+        for px in range(int(base_px), int(min_px) - 1, -1):
+            font.setPixelSize(px)
+            metrics = QFontMetrics(font)
+            widest = max(metrics.horizontalAdvance(line) for line in lines)
+            total_height = metrics.height() * len(lines)
+            if widest <= available_width and total_height <= available_height:
+                return px
+        return int(min_px)
 
     def hitButton(self, pos):
         # 根据当前按钮尺寸动态判定点击区域，避免缩放后命中范围不准确
@@ -146,17 +209,18 @@ class BubbleButton(QPushButton):
             text = self.text()
             rect = self.rect()
             font = self.font()
+            painter.setFont(font)
             
             path = QPainterPath()
-            fm = painter.fontMetrics()
+            fm = QFontMetrics(font)
             lines = text.splitlines() if text else [""]
             if not lines:
                 lines = [""]
             
-            # 由于之前有 padding-top: 50px，我们把文字依然画到底部中间位置
-            # 高度是 80，底部的空间大约是从 45 到 80。
-            padding_top = max(20, int(45 * self.ui_scale))
-            area_height = rect.height() - padding_top
+            # 图片按钮文字放在下半部分；小尺寸时按比例压缩，避免两行文字被挤出按钮。
+            bottom_ratio = 0.48 if len(lines) > 1 else 0.56
+            padding_top = max(8, int(rect.height() * bottom_ratio))
+            area_height = max(1, rect.height() - padding_top)
 
             line_height = fm.height()
             total_height = line_height * len(lines)
@@ -194,6 +258,7 @@ class CircularMenuWidget(QWidget):
         if screen is None:
             screen = QApplication.primaryScreen()
         screen_geo = screen.availableGeometry()
+        self._screen_top_left = screen_geo.topLeft()
         self.setGeometry(screen_geo)
 
         self.center_pos = center_pos
@@ -258,6 +323,20 @@ class CircularMenuWidget(QWidget):
         self._build_menu()
         return True
 
+    def _ensure_screen_geometry(self):
+        screen = QApplication.screenAt(self.center_pos)
+        if screen is None:
+            screen = QApplication.primaryScreen()
+
+        screen_geo = screen.availableGeometry()
+        self._screen_top_left = screen_geo.topLeft()
+        if self.geometry() != screen_geo:
+            self.setGeometry(screen_geo)
+        return screen_geo
+
+    def _global_to_local(self, point):
+        return QPoint(point.x() - self._screen_top_left.x(), point.y() - self._screen_top_left.y())
+
     def set_auto_close_enabled(self, enabled):
         self.auto_close_enabled = bool(enabled)
         if self.auto_close_enabled:
@@ -282,6 +361,9 @@ class CircularMenuWidget(QWidget):
         return path_val if os.path.exists(path_val) else None
 
     def _build_menu(self):
+        screen_geo = self._ensure_screen_geometry()
+        center_local = self._global_to_local(self.center_pos)
+
         # 清除旧按钮
         for btn in self.buttons:
             btn.deleteLater()
@@ -334,11 +416,6 @@ class CircularMenuWidget(QWidget):
         if n == 1:
             angles = [math.pi / 2]
         else:
-            # 获取中心点所在屏幕的可用区域
-            screen = QApplication.screenAt(self.center_pos)
-            if screen is None:
-                screen = QApplication.primaryScreen()
-            screen_geo = screen.availableGeometry()
             margin = R + btn_half + 10
 
             can_up = (self.center_pos.y() - screen_geo.top()) >= margin
@@ -410,13 +487,13 @@ class CircularMenuWidget(QWidget):
                 parent=self
             )
 
-            # 目标位置（全局坐标）
-            tar_x = self.center_pos.x() + R * math.cos(angles[i]) - btn.width() / 2
-            tar_y = self.center_pos.y() - R * math.sin(angles[i]) - btn.height() / 2
+            # 目标位置（菜单窗口内坐标）
+            tar_x = center_local.x() + R * math.cos(angles[i]) - btn.width() / 2
+            tar_y = center_local.y() - R * math.sin(angles[i]) - btn.height() / 2
 
             # 起始位置（中心点）
-            start_x = self.center_pos.x() - btn.width() / 2
-            start_y = self.center_pos.y() - btn.height() / 2
+            start_x = center_local.x() - btn.width() / 2
+            start_y = center_local.y() - btn.height() / 2
 
             btn.move(int(start_x), int(start_y))
 

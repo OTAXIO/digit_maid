@@ -4,14 +4,22 @@ app_paths:
     - calc.exe
     - /System/Applications/Calculator.app
     - /Applications/Calculator.app
+    - gnome-calculator
+    - kcalc
   记事本:
     - notepad.exe
     - /System/Applications/TextEdit.app
     - /Applications/TextEdit.app
+    - gedit
+    - kate
+    - xed
   终端:
     - C:\WINDOWS\system32\cmd.exe
     - /System/Applications/Utilities/Terminal.app
     - /Applications/Utilities/Terminal.app
+    - x-terminal-emulator
+    - gnome-terminal
+    - konsole
   网易云:
     - cloudmusic.exe
     - C:\Program Files (x86)\Netease\CloudMusic\cloudmusic.exe
@@ -21,6 +29,7 @@ app_paths:
     - /Applications/NeteaseMusic.app
     - /Applications/NetEaseMusic.app
     - /Applications/网易云音乐.app
+    - netease-cloud-music
   鹰角启动:
     - E:\GAME\Hypergryph Launcher\Launcher.exe
     - C:\Program Files (x86)\Hypergryph Launcher\Launcher.exe
@@ -31,3 +40,4 @@ app_paths:
     - C:\Program Files\Steam\steam.exe
     - E:\steam\steam.exe
     - /Applications/Steam.app
+    - steam
