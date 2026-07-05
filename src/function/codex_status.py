@@ -33,7 +33,9 @@ def _truncate(text, max_chars=MAX_COMMAND_CHARS):
     text = " ".join(str(text).split())
     if len(text) <= max_chars:
         return text
-    return f"{text[: max_chars - 1]}..."
+    if max_chars <= 3:
+        return text[:max_chars]
+    return f"{text[: max_chars - 3]}..."
 
 
 def _format_updated_at(raw_value, fallback_mtime=None):
