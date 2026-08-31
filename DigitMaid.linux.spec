@@ -7,9 +7,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('resource', 'resource'),
-        ('src/function/apps.yaml', 'src/function'),
-        ('src/input/dialog_style.yaml', 'src/input'),
-        ('src/ui/maid_animations.yaml', 'src/ui'),
+        ('config', 'config'),
     ],
     hiddenimports=[],
     hookspath=[],

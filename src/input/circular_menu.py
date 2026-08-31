@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QWidget, QPushButton, QApplication
 from PyQt6.QtCore import Qt, QPropertyAnimation, QRect, QEasingCurve, QPoint, QTimer, QPointF
 from PyQt6.QtGui import QPainter, QColor, QPen, QPainterPath, QFontMetrics
 
+from src.core.paths import runtime_root
 from .choice_dialog import load_dialog_theme
 
 class BubbleButton(QPushButton):
@@ -266,7 +267,7 @@ class CircularMenuWidget(QWidget):
         self.menu_scale = max(0.4, float(menu_scale))
         self.maid_widget = parent
 
-        self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+        self.root_dir = str(runtime_root())
         self.theme = load_dialog_theme()
         self.use_image_buttons = self.theme.get("circular_button_mode", "default").lower() == "image"
         self.select_btn_path = self._resolve_theme_path(self.theme.get("circular_btn_select", ""))

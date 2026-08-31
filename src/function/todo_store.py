@@ -1,8 +1,12 @@
-import json
 import os
 from datetime import date, timedelta
 
 from PyQt6.QtCore import QStandardPaths
+
+from src.core.json_store import JsonStoreError, atomic_write_json, read_json_file
+
+
+MAX_TODO_FILE_BYTES = 2 * 1024 * 1024
 
 
 def _normalize_ddl_time(raw_ddl):
@@ -142,10 +146,9 @@ def save_todo_items_by_date(items_by_date):
     payload = {"items_by_date": normalized}
     data_path = get_todo_data_path()
     try:
-        with open(data_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
+        atomic_write_json(data_path, payload)
         return True
-    except Exception:
+    except (OSError, TypeError, ValueError):
         return False
 
 
@@ -157,15 +160,13 @@ def load_todo_items_by_date():
         return default_items
 
     try:
-        with open(data_path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        raw_items = payload.get("items_by_date", {})
-        if isinstance(raw_items, dict):
+        payload = read_json_file(data_path, max_bytes=MAX_TODO_FILE_BYTES)
+        if isinstance(payload, dict) and isinstance(payload.get("items_by_date", {}), dict):
             # 文件存在时允许返回空字典，避免用户清空待办后被默认模板覆盖。
-            return _normalize_items(raw_items)
-    except Exception:
+            return _normalize_items(payload.get("items_by_date", {}))
+    except JsonStoreError:
         pass
 
+    # 保留损坏或过大的原文件供用户恢复，不用默认模板覆盖它。
     default_items = _build_default_items()
-    save_todo_items_by_date(default_items)
     return default_items

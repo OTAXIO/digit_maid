@@ -3,6 +3,9 @@ from PyQt6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLab
 from PyQt6.QtCore import Qt, QPointF
 from PyQt6.QtGui import QPainter, QColor, QPen, QPainterPath
 
+from src.config import ConfigError, load_dialog_theme as _load_dialog_theme
+from src.core.paths import runtime_root
+
 class OutlineLabel(QLabel):
     def __init__(self, text="", enable_outline=True, parent=None):
         super().__init__(text, parent)
@@ -91,27 +94,12 @@ class OutlineButton(QPushButton):
         # 我们不再直接调用 drawText，全靠 PainterPath 画出描边效果
 
 def load_dialog_theme():
-    """解析简单的 YAML 文件读取对话框图片路径"""
-    config_path = os.path.join(os.path.dirname(__file__), "dialog_style.yaml")
-    theme = {}
-    if not os.path.exists(config_path):
-        return theme
-        
+    """Load the validated theme while preserving the old helper name."""
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
-            for line in f:
-                stripped = line.strip()
-                if not stripped or stripped.startswith("#"):
-                    continue
-                if ":" in stripped:
-                    key, val = stripped.split(":", 1)
-                    key = key.strip()
-                    val = val.strip().strip("'\"")
-                    if val:
-                        theme[key] = val
-    except Exception as e:
+        return _load_dialog_theme()
+    except ConfigError as e:
         print(f"读取 dialog_style.yaml 失败: {e}")
-    return theme
+        return {}
 
 class CustomChoiceDialog(QDialog):
     def __init__(self, parent=None):
@@ -125,7 +113,7 @@ class CustomChoiceDialog(QDialog):
         
         # 加载配置和根目录
         self.theme = load_dialog_theme()
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+        root_dir = str(runtime_root())
 
         # 解析背景图
         bg_path = self.theme.get("background", "")
