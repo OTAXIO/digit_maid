@@ -1,3 +1,4 @@
+import html
 import math
 import sys
 
@@ -68,6 +69,7 @@ class SpeechBubble(QWidget):
         self.arrow_start_x = 20
         self.arrow_tip_dx = 10
         self.arrow_end_dx = 15
+        self.arrow_side = "left"
         
         # macOS 下避免始终置顶，防止影响切换到其他应用。
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
@@ -108,6 +110,7 @@ class SpeechBubble(QWidget):
         
         # 2秒后自动淡出或关闭
         self.timer = QTimer(self)
+        self.timer.setSingleShot(True)
         self.timer.timeout.connect(self.close)
         self.timer.start(2000)
 
@@ -194,22 +197,35 @@ class SpeechBubble(QWidget):
             if anchor_point is None:
                 return
 
-            screen_geo = QApplication.primaryScreen().availableGeometry()
+            screen = QApplication.screenAt(anchor_point)
+            if screen is None and self.target is not None:
+                screen = self.target.screen()
+            if screen is None:
+                screen = QApplication.primaryScreen()
+            screen_geo = screen.availableGeometry()
 
             # 跟随菜单缩放半径外扩，使气泡与菜单选项保持同向联动
-            x = anchor_point.x() + int(round(self.menu_radius * 0.45))
+            horizontal_offset = int(round(self.menu_radius * 0.45))
+            x = anchor_point.x() + horizontal_offset
             y = anchor_point.y() - self.height() - int(round(self.menu_radius * 0.15))
+            arrow_side = "left"
             
             # 边界检测
             if x + self.width() > screen_geo.right():
-                x = anchor_point.x() - self.width() - int(round(self.menu_radius * 0.45))
+                x = anchor_point.x() - self.width() - horizontal_offset
+                arrow_side = "right"
             if x < screen_geo.left():
                 x = screen_geo.left()
+                arrow_side = "left"
 
             if y + self.height() > screen_geo.bottom():
                 y = screen_geo.bottom() - self.height()
             if y < screen_geo.top():
                 y = screen_geo.top()
+
+            if arrow_side != self.arrow_side:
+                self.arrow_side = arrow_side
+                self.update()
 
             self.move(int(x), int(y))
 
@@ -227,16 +243,17 @@ class SpeechBubble(QWidget):
         path = QPainterPath()
         path.addRoundedRect(rect, self.corner_radius, self.corner_radius) # 增加圆角半径使其更加圆润
         
-        # 绘制小尾巴 (指向左下角)
-        # 箭头起点 (在矩形底部边框上)
-        arrow_start_x = self.arrow_start_x
-        path.moveTo(arrow_start_x, height - arrow_height)
-        
-        # 箭头尖端
-        path.lineTo(arrow_start_x - self.arrow_tip_dx, height)
-        
-        # 箭头终点 (在矩形底部边框上)
-        path.lineTo(arrow_start_x + self.arrow_end_dx, height - arrow_height)
+        # 绘制小尾巴，气泡左右翻转时同步调整方向
+        if self.arrow_side == "right":
+            arrow_start_x = width - self.arrow_start_x
+            path.moveTo(arrow_start_x, height - arrow_height)
+            path.lineTo(arrow_start_x + self.arrow_tip_dx, height)
+            path.lineTo(arrow_start_x - self.arrow_end_dx, height - arrow_height)
+        else:
+            arrow_start_x = self.arrow_start_x
+            path.moveTo(arrow_start_x, height - arrow_height)
+            path.lineTo(arrow_start_x - self.arrow_tip_dx, height)
+            path.lineTo(arrow_start_x + self.arrow_end_dx, height - arrow_height)
         
         # 合并路径会自动处理重叠部分
         
@@ -260,11 +277,13 @@ class DialogueSystem:
         if self.current_bubble:
             try:
                 self.current_bubble.close()
-            except:
+            except Exception:
                 pass
         
         # 构建显示文本，标题加粗
-        display_text = f"<b>{title}</b><br>{content}"
+        safe_title = html.escape(str(title))
+        safe_content = html.escape(str(content)).replace("\n", "<br>")
+        display_text = f"<b>{safe_title}</b><br>{safe_content}"
         
         self.current_bubble = SpeechBubble(display_text, self.parent)
         self.current_bubble.show()
@@ -274,6 +293,5 @@ class DialogueSystem:
             try:
                 self.current_bubble.close()
                 self.current_bubble = None
-            except:
+            except Exception:
                 pass
-

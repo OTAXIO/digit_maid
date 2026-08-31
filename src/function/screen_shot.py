@@ -1,39 +1,5 @@
-import os
-from datetime import datetime
-from PyQt6.QtWidgets import QApplication
+"""Backward-compatible import path for the screenshot service."""
 
-def capture_screen_content(save_dir=None):
-    """
-    捕获当前屏幕并保存到指定文件夹
-    Args:
-        save_dir (str, optional): 保存目录。如果不传，默认保存到项目 resource 目录。
-    """
-    try:
-        # 确定保存目录
-        if save_dir:
-            target_dir = save_dir
-        else:
-            # 获取 workspace 根目录（假设相对于当前文件位置）
-            # src/function/__file__ -> src/function -> src -> root
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            root_dir = os.path.dirname(os.path.dirname(current_dir))
-            target_dir = os.path.join(root_dir, "resource")
-        
-        if not os.path.exists(target_dir):
-            os.makedirs(target_dir)
-            
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"screenshot_{timestamp}.png"
-        filepath = os.path.join(target_dir, filename)
-        
-        # 使用 PyQt6 原生截图方法，避免 pyautogui 和 Pillow 的额外内存消耗与冲突
-        app = QApplication.instance()
-        if app:
-            screen = app.primaryScreen()
-            pixmap = screen.grabWindow(0)
-            pixmap.save(filepath, 'PNG')
-            return f"屏幕已截图，保存为: {filepath}"
-        else:
-            return "截图失败: 找不到 QApplication 实例"
-    except Exception as e:
-        return f"截图失败: {e}"
+from src.services.screenshot import capture_screen_content
+
+__all__ = ["capture_screen_content"]

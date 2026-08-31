@@ -41,7 +41,7 @@ class OptionMenuController:
 
     @property
     def is_ui_locked(self) -> bool:
-        return self.is_menu_open or self._todo_panel_open
+        return self.is_menu_open or self._todo_panel_open or self._custom_scale_adjusting
 
     @property
     def policy(self) -> MenuOperationPolicy:

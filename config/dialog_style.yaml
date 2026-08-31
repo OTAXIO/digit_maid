@@ -1,0 +1,23 @@
+# 文本描边配置
+outline_button_text: true
+outline_dialog_text: false
+outline_dialog_bubble: false
+
+# 菜单与圆形按钮
+menu_style: circular
+circular_button_mode: image
+circular_btn_select: resource/button/select.png
+circular_btn_quit: resource/button/quit.png
+circular_btn_off: resource/button/off.png
+background: resource/button/background.jpg
+
+# 可选按钮素材；留空时使用默认样式
+btn_desktop_normal: ""
+btn_desktop_hover: ""
+btn_desktop_pressed: ""
+btn_default_normal: ""
+btn_default_hover: ""
+btn_default_pressed: ""
+btn_cancel_normal: ""
+btn_cancel_hover: ""
+btn_cancel_pressed: ""
