@@ -8,7 +8,7 @@ class AppLauncherTests(unittest.TestCase):
     def test_only_exact_configured_names_are_allowed(self):
         apps = {"Editor": ["editor.exe"]}
         with (
-            patch.object(app_launcher, "load_app_paths", return_value=apps),
+            patch.object(app_launcher, "load_launch_paths", return_value=apps),
             patch.object(app_launcher.platform, "system", return_value="Windows"),
             patch.object(app_launcher, "_launch_windows_app") as launch,
         ):
@@ -19,7 +19,7 @@ class AppLauncherTests(unittest.TestCase):
     def test_configured_target_is_launched_without_shell(self):
         apps = {"Editor": ["missing.exe", "editor.exe"]}
         with (
-            patch.object(app_launcher, "load_app_paths", return_value=apps),
+            patch.object(app_launcher, "load_launch_paths", return_value=apps),
             patch.object(app_launcher.platform, "system", return_value="Windows"),
             patch.object(
                 app_launcher,
@@ -33,7 +33,7 @@ class AppLauncherTests(unittest.TestCase):
 
     def test_unsupported_platform_does_not_launch(self):
         with (
-            patch.object(app_launcher, "load_app_paths", return_value={"Editor": ["editor"]}),
+            patch.object(app_launcher, "load_launch_paths", return_value={"Editor": ["editor"]}),
             patch.object(app_launcher.platform, "system", return_value="Plan9"),
         ):
             self.assertIn("暂不支持", app_launcher.open_application("Editor"))
