@@ -24,7 +24,7 @@ Digit Maid 是一个基于 PyQt6 的跨平台桌面伴侣。它以无边框透�
 python -m pip install -r requirements.txt
 ```
 
-当前运行依赖为 PyQt6 和 PyYAML。配置文件统一使用 `yaml.safe_load` 读取，不会执行 YAML 中的 Python 对象构造器。
+当前唯一运行依赖是 PyQt6。项目内置了只支持映射、标量和标量列表的受限 YAML 解析器，因此不再要求安装 PyYAML，也不会执行 YAML 标签、引用或 Python 对象构造器。
 
 ## 运行
 
@@ -176,7 +176,7 @@ GitHub Actions 会在 `main`、`OTAXIO` 推送及拉取请求上运行编译和�
 ## 安全设计
 
 - 应用启动采用配置白名单、精确名称匹配、参数列表和 `shell=False`。
-- YAML 使用安全加载器，并限制文件大小、应用数量、路径和字段类型。
+- YAML 使用项目内置的受限解析器，拒绝标签、引用、复杂值和对象构造，并限制文件大小、应用数量、路径和字段类型。
 - 动画路径被限制在 `resource/` 下，阻止通过 `../` 读取任意位置的素材。
 - 待办和 Codex 状态 JSON 在解析前检查大小；待办通过原子替换写入。
 - GitHub AI 工作流拒绝外部用户通过 Issue 或 PR 评论触发密钥作业。

@@ -6,8 +6,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any, Optional
 
-import yaml
-
+from src.config.restricted_yaml import RestrictedYamlError, load_restricted_mapping
 from src.core.paths import config_path, resource_path, runtime_root
 
 
@@ -42,9 +41,8 @@ def _load_yaml_mapping(path: Path) -> dict[str, Any]:
         raise ConfigError(f"配置文件过大: {path} ({size} bytes)")
 
     try:
-        with path.open("r", encoding="utf-8") as handle:
-            payload = yaml.safe_load(handle)
-    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        payload = load_restricted_mapping(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, RestrictedYamlError) as exc:
         raise ConfigError(f"YAML 配置无效 {path}: {exc}") from exc
 
     if payload is None:
