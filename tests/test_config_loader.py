@@ -36,6 +36,34 @@ app_paths:
             with self.assertRaises(ConfigError):
                 load_app_paths(path)
 
+    def test_restricted_yaml_supports_project_scalar_subset(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write(
+                directory,
+                "apps.yaml",
+                """
+app_paths:
+  Editor:
+    - 'C:\\Program Files\\Editor\\editor.exe'
+    - editor
+  Disabled: []
+""",
+            )
+            self.assertEqual(
+                load_app_paths(path),
+                {"Editor": [r"C:\Program Files\Editor\editor.exe", "editor"]},
+            )
+
+    def test_yaml_aliases_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write(
+                directory,
+                "apps.yaml",
+                "app_paths: &apps\n  Editor:\n    - editor.exe\ncopy: *apps\n",
+            )
+            with self.assertRaises(ConfigError):
+                load_app_paths(path)
+
     def test_animation_paths_are_confined_to_resources(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self._write(
