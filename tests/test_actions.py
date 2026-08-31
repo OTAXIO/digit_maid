@@ -1,7 +1,14 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from src.ui.action import MaidActions, codex_status
+try:
+    from src.ui.action import MaidActions, codex_status
+except ImportError as exc:  # Linux runners may not provide Qt's optional EGL library.
+    MaidActions = None
+    codex_status = None
+    QT_IMPORT_ERROR = str(exc)
+else:
+    QT_IMPORT_ERROR = ""
 
 
 class _Parent:
@@ -9,6 +16,7 @@ class _Parent:
         self.play_action = Mock()
 
 
+@unittest.skipIf(MaidActions is None, f"Qt runtime unavailable: {QT_IMPORT_ERROR}")
 class MaidActionsTests(unittest.TestCase):
     def setUp(self):
         self.parent = _Parent()
