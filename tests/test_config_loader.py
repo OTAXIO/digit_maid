@@ -2,7 +2,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.config.loader import ConfigError, load_animation_config, load_app_paths, load_dialog_theme
+from src.config.loader import (
+    ConfigError,
+    load_animation_config,
+    load_app_menu,
+    load_app_paths,
+    load_dialog_theme,
+)
 
 
 class ConfigLoaderTests(unittest.TestCase):
@@ -60,6 +66,60 @@ app_paths:
                 directory,
                 "apps.yaml",
                 "app_paths: &apps\n  Editor:\n    - editor.exe\ncopy: *apps\n",
+            )
+            with self.assertRaises(ConfigError):
+                load_app_paths(path)
+
+    def test_nested_app_categories_are_preserved_and_flattened(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write(
+                directory,
+                "apps.yaml",
+                """
+app_paths:
+  Editor:
+    - editor.exe
+  GAME:
+    Steam:
+      - steam.exe
+    Launchers:
+      Hypergryph:
+        - launcher.exe
+""",
+            )
+            self.assertEqual(
+                load_app_menu(path),
+                {
+                    "Editor": ["editor.exe"],
+                    "GAME": {
+                        "Steam": ["steam.exe"],
+                        "Launchers": {"Hypergryph": ["launcher.exe"]},
+                    },
+                },
+            )
+            self.assertEqual(
+                load_app_paths(path),
+                {
+                    "Editor": ["editor.exe"],
+                    "Steam": ["steam.exe"],
+                    "Hypergryph": ["launcher.exe"],
+                },
+            )
+
+    def test_duplicate_app_names_across_categories_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write(
+                directory,
+                "apps.yaml",
+                """
+app_paths:
+  常用:
+    Steam:
+      - steam.exe
+  GAME:
+    steam:
+      - another-steam.exe
+""",
             )
             with self.assertRaises(ConfigError):
                 load_app_paths(path)

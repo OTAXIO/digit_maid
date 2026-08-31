@@ -66,6 +66,8 @@ python src/core/run.py
 
 默认状态文件为系统应用数据目录下的 `codex_status.json`。也可在启动 Digit Maid 前设置：
 
+Codex 状态气泡会显示约 8 秒，普通操作提示仍保持约 2 秒，便于阅读较长的任务状态。
+
 ```bash
 # PowerShell
 $env:DIGITMAID_CODEX_STATUS_PATH = "D:\path\to\codex_status.json"
@@ -94,7 +96,7 @@ export DIGITMAID_CODEX_STATUS_PATH="/path/to/codex_status.json"
 - `maid_animations.yaml`：动作素材、循环方式、下落和待机默认值。
 - `dialog_style.yaml`：菜单、按钮和对话气泡的样式素材。
 
-### 添加应用
+### 添加应用与分类
 
 编辑 `config/apps.yaml`：
 
@@ -104,9 +106,18 @@ app_paths:
     - 'C:\Program Files\Editor\editor.exe'
     - /Applications/Editor.app
     - editor
+  GAME:
+    Steam:
+      - 'C:\Program Files (x86)\Steam\steam.exe'
+      - /Applications/Steam.app
+      - steam
+    鹰角启动:
+      - 'E:\GAME\Hypergryph Launcher\Launcher.exe'
 ```
 
-应用名称必须与菜单项精确匹配。程序不会再把未配置的文本当作命令执行；候选路径也不会通过 shell 解释。每次打开菜单都会重新读取配置，修改后无需改代码。
+`app_paths` 下的列表表示一个可启动应用，映射表示一个菜单分类；分类可以继续嵌套，最多 4 层。上例会生成 `APP -> GAME -> Steam / 鹰角启动`。应用名称在所有分类中必须唯一，并与菜单项精确匹配。
+
+程序不会把未配置的文本当作命令执行，候选路径也不会通过 shell 解释。列表菜单和圆形菜单都在每次打开时重新读取配置，修改后无需改代码或重启程序。
 
 ### 修改动画
 

@@ -12,6 +12,8 @@ from src.core.paths import config_path, resource_path, runtime_root
 
 MAX_CONFIG_BYTES = 256 * 1024
 MAX_APPS = 100
+MAX_APP_CATEGORIES = 50
+MAX_APP_CATEGORY_DEPTH = 4
 MAX_TARGETS_PER_APP = 20
 ALLOWED_FALL_MODES = {"smooth", "direct", "none"}
 ALLOWED_IDLE_MODES = {"default", "sport", "lazy"}
@@ -61,26 +63,85 @@ def _clean_scalar(value: Any, *, max_chars: int = 4096) -> Optional[str]:
     return cleaned
 
 
-def load_app_paths(path: Optional[Path] = None) -> dict[str, list[str]]:
+def _clean_app_menu(
+    raw_menu: Any,
+    *,
+    depth: int,
+    counters: dict[str, int],
+    seen_apps: set[str],
+) -> dict[str, Any]:
+    if not isinstance(raw_menu, dict):
+        raise ConfigError("app_paths 及应用分类必须是映射")
+    if depth > MAX_APP_CATEGORY_DEPTH:
+        raise ConfigError(f"应用分类最多支持 {MAX_APP_CATEGORY_DEPTH} 层")
+
+    menu: dict[str, Any] = {}
+    for raw_name, raw_value in raw_menu.items():
+        name = _clean_scalar(raw_name, max_chars=64)
+        if name is None:
+            continue
+
+        if isinstance(raw_value, list):
+            counters["apps"] += 1
+            if counters["apps"] > MAX_APPS:
+                raise ConfigError(f"应用数量不能超过 {MAX_APPS} 个")
+            normalized_name = name.casefold()
+            if normalized_name in seen_apps:
+                raise ConfigError(f"应用名称不能重复: {name}")
+
+            targets = []
+            for raw_target in raw_value[:MAX_TARGETS_PER_APP]:
+                target = _clean_scalar(raw_target)
+                if target is not None:
+                    targets.append(target)
+            if targets:
+                seen_apps.add(normalized_name)
+                menu[name] = targets
+            continue
+
+        if isinstance(raw_value, dict):
+            counters["categories"] += 1
+            if counters["categories"] > MAX_APP_CATEGORIES:
+                raise ConfigError(f"应用分类不能超过 {MAX_APP_CATEGORIES} 个")
+            children = _clean_app_menu(
+                raw_value,
+                depth=depth + 1,
+                counters=counters,
+                seen_apps=seen_apps,
+            )
+            if children:
+                menu[name] = children
+    return menu
+
+
+def load_app_menu(path: Optional[Path] = None) -> dict[str, Any]:
+    """Return the validated APP menu tree from ``config/apps.yaml``."""
+
     source = path or config_path("apps.yaml")
     payload = _load_yaml_mapping(Path(source))
     raw_apps = payload.get("app_paths", {})
-    if not isinstance(raw_apps, dict):
-        raise ConfigError("app_paths 必须是映射")
+    return _clean_app_menu(
+        raw_apps,
+        depth=0,
+        counters={"apps": 0, "categories": 0},
+        seen_apps=set(),
+    )
 
+
+def _flatten_app_menu(menu: dict[str, Any]) -> dict[str, list[str]]:
     apps: dict[str, list[str]] = {}
-    for raw_name, raw_targets in list(raw_apps.items())[:MAX_APPS]:
-        name = _clean_scalar(raw_name, max_chars=64)
-        if name is None or not isinstance(raw_targets, list):
-            continue
-        targets = []
-        for raw_target in raw_targets[:MAX_TARGETS_PER_APP]:
-            target = _clean_scalar(raw_target)
-            if target is not None:
-                targets.append(target)
-        if targets:
-            apps[name] = targets
+    for name, value in menu.items():
+        if isinstance(value, list):
+            apps[name] = value
+        elif isinstance(value, dict):
+            apps.update(_flatten_app_menu(value))
     return apps
+
+
+def load_app_paths(path: Optional[Path] = None) -> dict[str, list[str]]:
+    """Return a flat launch allowlist while categories remain a UI concern."""
+
+    return _flatten_app_menu(load_app_menu(path))
 
 
 def _safe_animation_base_dir(raw_value: Any) -> str:
