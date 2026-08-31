@@ -2,13 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.config.loader import (
-    ConfigError,
-    load_animation_config,
-    load_app_menu,
-    load_app_paths,
-    load_dialog_theme,
-)
+from src.config import ConfigError, load_animation_config, load_dialog_theme
 
 
 class ConfigLoaderTests(unittest.TestCase):
@@ -17,112 +11,25 @@ class ConfigLoaderTests(unittest.TestCase):
         path.write_text(content, encoding="utf-8")
         return path
 
-    def test_application_schema_drops_invalid_entries(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = self._write(
-                directory,
-                "apps.yaml",
-                """
-app_paths:
-  Editor:
-    - editor.exe
-    - 123
-  Empty: []
-""",
-            )
-            self.assertEqual(load_app_paths(path), {"Editor": ["editor.exe"]})
-
     def test_unsafe_yaml_constructor_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self._write(
                 directory,
-                "apps.yaml",
+                "theme.yaml",
                 "!!python/object/apply:os.system ['echo unsafe']",
             )
             with self.assertRaises(ConfigError):
-                load_app_paths(path)
-
-    def test_restricted_yaml_supports_project_scalar_subset(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = self._write(
-                directory,
-                "apps.yaml",
-                """
-app_paths:
-  Editor:
-    - 'C:\\Program Files\\Editor\\editor.exe'
-    - editor
-  Disabled: []
-""",
-            )
-            self.assertEqual(
-                load_app_paths(path),
-                {"Editor": [r"C:\Program Files\Editor\editor.exe", "editor"]},
-            )
+                load_dialog_theme(path)
 
     def test_yaml_aliases_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self._write(
                 directory,
-                "apps.yaml",
-                "app_paths: &apps\n  Editor:\n    - editor.exe\ncopy: *apps\n",
+                "theme.yaml",
+                "theme: &base\n  menu_style: circular\ncopy: *base\n",
             )
             with self.assertRaises(ConfigError):
-                load_app_paths(path)
-
-    def test_nested_app_categories_are_preserved_and_flattened(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = self._write(
-                directory,
-                "apps.yaml",
-                """
-app_paths:
-  Editor:
-    - editor.exe
-  GAME:
-    Steam:
-      - steam.exe
-    Launchers:
-      Hypergryph:
-        - launcher.exe
-""",
-            )
-            self.assertEqual(
-                load_app_menu(path),
-                {
-                    "Editor": ["editor.exe"],
-                    "GAME": {
-                        "Steam": ["steam.exe"],
-                        "Launchers": {"Hypergryph": ["launcher.exe"]},
-                    },
-                },
-            )
-            self.assertEqual(
-                load_app_paths(path),
-                {
-                    "Editor": ["editor.exe"],
-                    "Steam": ["steam.exe"],
-                    "Hypergryph": ["launcher.exe"],
-                },
-            )
-
-    def test_duplicate_app_names_across_categories_are_rejected(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = self._write(
-                directory,
-                "apps.yaml",
-                """
-app_paths:
-  常用:
-    Steam:
-      - steam.exe
-  GAME:
-    steam:
-      - another-steam.exe
-""",
-            )
-            with self.assertRaises(ConfigError):
-                load_app_paths(path)
+                load_dialog_theme(path)
 
     def test_animation_paths_are_confined_to_resources(self):
         with tempfile.TemporaryDirectory() as directory:

@@ -8,18 +8,24 @@ import shutil
 import subprocess
 from typing import Optional, Tuple
 
-from src.config import ConfigError, load_app_paths as _load_app_paths
+from src.config import ConfigError, load_launch_paths as _load_launch_paths
 
 
 _WINDOWS_CONSOLE_APPS = {"cmd.exe", "powershell.exe", "pwsh.exe"}
 
 
-def load_app_paths() -> dict[str, list[str]]:
+def load_launch_paths() -> dict[str, list[str]]:
     try:
-        return _load_app_paths()
+        return _load_launch_paths()
     except ConfigError as exc:
-        print(f"读取 apps.yaml 失败: {exc}")
+        print(f"读取 menu.yaml 失败: {exc}")
         return {}
+
+
+def load_app_paths() -> dict[str, list[str]]:
+    """Backward-compatible alias for older callers."""
+
+    return load_launch_paths()
 
 
 def _is_windows_path(value: str) -> bool:
@@ -74,11 +80,11 @@ def _find_configured_app(
 
 
 def open_application(app_name: str) -> str:
-    """Launch only an exact app name from ``config/apps.yaml``."""
+    """Launch only an exact APP/TOOL item from ``config/menu.yaml``."""
     if not isinstance(app_name, str) or not app_name.strip():
         return "应用名称不能为空"
 
-    configured = _find_configured_app(app_name, load_app_paths())
+    configured = _find_configured_app(app_name, load_launch_paths())
     if configured is None:
         return f"未配置应用: {app_name}（已阻止直接执行任意命令）"
 
@@ -98,4 +104,4 @@ def open_application(app_name: str) -> str:
             return f"已启动{configured_name}"
         except (FileNotFoundError, OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
             continue
-    return f"未找到{configured_name}，请确认 config/apps.yaml 中的安装位置"
+    return f"未找到{configured_name}，请确认 config/menu.yaml 中的 launch 路径"

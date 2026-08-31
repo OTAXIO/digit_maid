@@ -37,20 +37,16 @@ class MaidActionsTests(unittest.TestCase):
             duration_ms=8000,
         )
 
-    def test_circular_app_items_follow_nested_config(self):
-        items = self.actions._build_circular_app_items(
-            {
-                "Editor": ["editor.exe"],
-                "GAME": {
-                    "Steam": ["steam.exe"],
-                    "鹰角启动": ["launcher.exe"],
-                },
-            }
-        )
+    def test_vpn_launcher_uses_tool_dialogue(self):
+        with patch.object(
+            self.actions,
+            "_open_configured_launcher",
+            return_value="已启动v2rayN",
+        ) as launch:
+            result = self.actions.do_open_tool("v2rayN")
 
-        self.assertEqual([item["label"] for item in items], ["Editor", "GAME"])
-        game_items = items[1]["action"]
-        self.assertEqual([item["label"] for item in game_items], ["Steam", "鹰角启动"])
+        self.assertEqual(result, "已启动v2rayN")
+        launch.assert_called_once_with("v2rayN", "启动VPN")
 
 
 if __name__ == "__main__":

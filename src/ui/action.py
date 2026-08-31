@@ -2,9 +2,12 @@
 from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint, QSettings, Qt
 import os
-from src.config import ConfigError, load_app_menu
+from src.config import ConfigError, load_menu_config
 from src.core.paths import config_path, runtime_root
 from src.function import startup, codex_status
+from src.menu import MenuConfig
+from src.menu.circular_builder import build_circular_items
+from src.menu.qt_builder import populate_qmenu
 from src.services import app_launcher as open_app
 from src.services import screenshot as screen_shot
 from src.input import choice_dialog
@@ -353,38 +356,39 @@ class MaidActions:
             shifted.setY(max(geo.top(), shifted.y()))
         return shifted
 
-    def _read_app_menu(self):
+    def _read_menu_config(self):
         try:
-            return load_app_menu()
+            return load_menu_config()
         except ConfigError as exc:
-            print(f"读取 apps.yaml 失败: {exc}")
-            return {}
+            print(f"读取 menu.yaml 失败: {exc}")
+            return MenuConfig()
 
-    def _populate_list_app_menu(self, parent_menu, menu_tree):
-        for label, value in menu_tree.items():
-            if isinstance(value, dict):
-                submenu = parent_menu.addMenu(label)
-                self._populate_list_app_menu(submenu, value)
-            elif isinstance(value, list):
-                action = QAction(label, self.parent)
-                action.triggered.connect(
-                    lambda checked, app_name=label: self.do_open_app(app_name)
-                )
-                parent_menu.addAction(action)
+    def _list_tool_handlers(self):
+        return {
+            "screenshot": self.do_screenshot,
+            "keyboard_control": self.start_keyboard_control,
+            "codex_status": self.show_codex_status,
+        }
 
-    def _build_circular_app_items(self, menu_tree):
-        items = []
-        for label, value in menu_tree.items():
-            if isinstance(value, dict):
-                children = self._build_circular_app_items(value)
-                if children:
-                    items.append({'label': label, 'action': children})
-            elif isinstance(value, list):
-                items.append({
-                    'label': label,
-                    'action': lambda app_name=label: self.do_open_app(app_name),
-                })
-        return items
+    def _circular_tool_handlers(self):
+        return {
+            "screenshot": [
+                {
+                    'label': '存到桌面',
+                    'action': lambda: self.do_circular_screenshot("desktop"),
+                },
+                {
+                    'label': '存到默认',
+                    'action': lambda: self.do_circular_screenshot("default"),
+                },
+                {
+                    'label': '不保存',
+                    'action': lambda: self.do_circular_screenshot("none"),
+                },
+            ],
+            "keyboard_control": self.start_keyboard_control,
+            "codex_status": self.show_codex_status,
+        }
 
     def show_context_menu(self, global_pos):
         # 拦截：如果气泡菜单已经存在并且开着，重复右击则关闭它（相当于开关切换）
@@ -473,25 +477,26 @@ class MaidActions:
         # 设置当前菜单和子菜单的样式
         menu.setStyleSheet(menu_qss)
 
-        # 打开常用软件子菜单
+        menu_config = self._read_menu_config()
         app_menu = menu.addMenu("APP")
-        self._populate_list_app_menu(app_menu, self._read_app_menu())
+        populate_qmenu(
+            app_menu,
+            menu_config.applications,
+            action_parent=self.parent,
+            launch_handler=self.do_open_app,
+            action_handlers={},
+        )
 
         menu.addSeparator()
 
         tool_menu = menu.addMenu("TOOL")
-
-        action_screenshot = QAction('截图', self.parent)
-        action_screenshot.triggered.connect(self.do_screenshot)
-        tool_menu.addAction(action_screenshot)
-
-        action_keyboard_control = QAction('控制移动', self.parent)
-        action_keyboard_control.triggered.connect(self.start_keyboard_control)
-        tool_menu.addAction(action_keyboard_control)
-
-        action_codex_status = QAction('Codex进程', self.parent)
-        action_codex_status.triggered.connect(lambda checked: self.show_codex_status())
-        tool_menu.addAction(action_codex_status)
+        populate_qmenu(
+            tool_menu,
+            menu_config.tools,
+            action_parent=self.parent,
+            launch_handler=self.do_open_tool,
+            action_handlers=self._list_tool_handlers(),
+        )
 
         action_todo = QAction('待办', self.parent)
         action_todo.triggered.connect(self.show_todo_panel)
@@ -637,16 +642,17 @@ class MaidActions:
 
     def show_circular_menu(self, global_pos):
         """用半圆形菜单展开相同的选项"""
-        app_sub_items = self._build_circular_app_items(self._read_app_menu())
-
-        screenshot_sub_items = [
-            {'label': '存到桌面', 'action': lambda: self.do_circular_screenshot("desktop")},
-            {'label': '存到默认', 'action': lambda: self.do_circular_screenshot("default")},
-            {'label': '不保存', 'action': lambda: self.do_circular_screenshot("none")}
-        ]
-        tools_sub_items = [
-            {'label': '截屏', 'action': screenshot_sub_items},
-        ]
+        menu_config = self._read_menu_config()
+        app_sub_items = build_circular_items(
+            menu_config.applications,
+            launch_handler=self.do_open_app,
+            action_handlers={},
+        )
+        tools_sub_items = build_circular_items(
+            menu_config.tools,
+            launch_handler=self.do_open_tool,
+            action_handlers=self._circular_tool_handlers(),
+        )
 
         current_mode = self._get_current_fall_mode()
         fall_mode_sub_items = [
@@ -699,12 +705,6 @@ class MaidActions:
             {'label': '关闭自启动' if startup.is_startup_enabled() else '开启自启动', 'action': self.toggle_startup},
             {'label': '关闭置顶' if self._is_always_on_top_enabled() else '开启置顶', 'action': self.toggle_always_on_top},
         ]
-        tools_sub_items = [
-            {'label': '截屏', 'action': screenshot_sub_items},
-            {'label': '控制移动', 'action': self.start_keyboard_control},
-            {'label': 'Codex', 'action': self.show_codex_status},
-        ]
-
         top_items = [
             {'label': 'APP', 'action': app_sub_items},
             {'label': 'TOOL', 'action': tools_sub_items},
@@ -842,24 +842,25 @@ class MaidActions:
         if not success:
             QApplication.instance().quit()
 
-    def do_open_app(self, app_name):
-        if app_name=="v2rayN":
-            self.parent.play_action("open_app")
-            print(f"正在启动 {app_name}...")
-            result = open_app.open_application(app_name)
-            print(result)
-            self.dialogue.show_message("启动VPN", result)
-        else:
-            self.parent.play_action("open_app")
-            print(f"正在启动 {app_name}...")
-            result = open_app.open_application(app_name)
-            print(result)
-            self.dialogue.show_message("打开软件", result)
+    def _open_configured_launcher(self, name, dialogue_title):
+        self.parent.play_action("open_app")
+        print(f"正在启动 {name}...")
+        result = open_app.open_application(name)
+        print(result)
+        self.dialogue.show_message(dialogue_title, result)
 
         if getattr(self.parent, "is_macos", False):
             # 目标应用激活后做一次可见性兜底，避免桌宠被系统判定为隐藏。
             self.parent.show()
             QTimer.singleShot(250, self.parent.show)
+        return result
+
+    def do_open_app(self, app_name):
+        return self._open_configured_launcher(app_name, "打开软件")
+
+    def do_open_tool(self, tool_name):
+        title = "启动VPN" if "vpn" in tool_name.casefold() or "v2ray" in tool_name.casefold() else "启动工具"
+        return self._open_configured_launcher(tool_name, title)
 
     def toggle_startup(self, enabled=None):
         if enabled is None:

@@ -7,7 +7,7 @@ Digit Maid 是一个基于 PyQt6 的跨平台桌面伴侣。它以无边框透�
 - 透明桌宠窗口：拖拽、缩放、置顶、贴边隐藏和多种动作动画。
 - 环形/列表菜单：分页、多级子菜单和屏幕边缘避让。
 - 待办面板：按日期保存、DDL 排序、日历标记、分页及行内编辑。
-- 安全启动应用：只允许启动 `config/apps.yaml` 中明确配置的程序。
+- 配置驱动菜单：APP 与 TOOL 独立分区、均支持多层分类，并只允许启动 `config/menu.yaml` 中明确配置的程序。
 - 屏幕截图：保存到桌面、图片目录或用户选择的位置。
 - 行为模式：缓降、直落、不下坠，以及默认、运动、懒惰三种待机模式。
 - 系统集成：Windows、macOS、Linux 开机自启动与跨平台打包。
@@ -49,7 +49,7 @@ python src/core/run.py
 ### 菜单与移动
 
 - 右键桌宠打开菜单。
-- 在 `TOOL -> 控制移动` 中进入键盘控制。
+- 在 `TOOL -> 系统工具 -> 控制移动` 中进入键盘控制。
 - `A/D` 或 `←/→` 水平移动，`W/↑/空格` 上升，`S/↓` 快速下落，`Esc` 退出控制。
 - 在设置中可以修改桌宠大小、下落模式、待机模式、置顶状态和开机自启动。
 
@@ -92,30 +92,49 @@ export DIGITMAID_CODEX_STATUS_PATH="/path/to/codex_status.json"
 
 所有可编辑配置集中在 `config/`：
 
-- `apps.yaml`：允许启动的应用及不同系统下的候选路径。
+- `menu.yaml`：定义 APP/TOOL 分类、内置工具动作和跨平台启动路径。
 - `maid_animations.yaml`：动作素材、循环方式、下落和待机默认值。
 - `dialog_style.yaml`：菜单、按钮和对话气泡的样式素材。
 
-### 添加应用与分类
+### 管理 APP 与 TOOL
 
-编辑 `config/apps.yaml`：
+编辑 `config/menu.yaml`：
 
 ```yaml
-app_paths:
-  我的编辑器:
-    - 'C:\Program Files\Editor\editor.exe'
-    - /Applications/Editor.app
-    - editor
-  GAME:
-    Steam:
-      - 'C:\Program Files (x86)\Steam\steam.exe'
-      - /Applications/Steam.app
-      - steam
-    鹰角启动:
-      - 'E:\GAME\Hypergryph Launcher\Launcher.exe'
+menus:
+  APP:
+    开发:
+      我的编辑器:
+        launch:
+          - 'C:\Program Files\Editor\editor.exe'
+          - /Applications/Editor.app
+          - editor
+    GAME:
+      Steam:
+        launch:
+          - 'C:\Program Files (x86)\Steam\steam.exe'
+          - /Applications/Steam.app
+          - steam
+
+  TOOL:
+    系统工具:
+      截图:
+        action: screenshot
+      控制移动:
+        action: keyboard_control
+    网络:
+      VPN:
+        launch:
+          - 'D:\Tools\VPN\vpn.exe'
 ```
 
-`app_paths` 下的列表表示一个可启动应用，映射表示一个菜单分类；分类可以继续嵌套，最多 4 层。上例会生成 `APP -> GAME -> Steam / 鹰角启动`。应用名称在所有分类中必须唯一，并与菜单项精确匹配。
+`APP` 和 `TOOL` 是完全独立的菜单树，普通映射表示分类，最多嵌套 4 层：
+
+- `launch` 表示外部启动项，既可用于 APP，也可用于 VPN 等 TOOL；其中的路径会进入统一安全白名单。
+- `action` 表示内置工具，目前支持 `screenshot`、`keyboard_control` 和 `codex_status`，只能放在 TOOL。
+- 所有 `launch` 项的名称必须全局唯一，避免不同分类指向不明确的启动目标。
+
+上例分别生成 `APP -> 开发 -> 我的编辑器`、`APP -> GAME -> Steam`、`TOOL -> 系统工具` 和 `TOOL -> 网络 -> VPN`。
 
 程序不会把未配置的文本当作命令执行，候选路径也不会通过 shell 解释。列表菜单和圆形菜单都在每次打开时重新读取配置，修改后无需改代码或重启程序。
 
@@ -152,6 +171,7 @@ dmaid/
 │   ├── core/                  # 启动、运行时路径、原子 JSON 存储
 │   ├── function/              # 待办、自启动、Codex 等功能及兼容入口
 │   ├── input/                 # 环形菜单与输入对话框
+│   ├── menu/                  # 菜单领域模型、列表/圆形菜单构建器
 │   ├── services/              # 应用启动、截图等系统边界服务
 │   ├── ui/                    # 桌宠窗口、动作控制、对话和待办 UI
 │   └── __main__.py            # `python -m src` 入口
@@ -160,7 +180,7 @@ dmaid/
 └── requirements.txt
 ```
 
-入口保持轻量：`src/core/run.py` 只负责脚本兼容，Qt 初始化和单实例生命周期位于 `src/core/application.py`，路径解析位于 `src/core/paths.py`。UI 不再自行解析 YAML，也不直接负责系统进程启动。
+入口保持轻量：`src/core/run.py` 只负责脚本兼容，Qt 初始化和单实例生命周期位于 `src/core/application.py`，路径解析位于 `src/core/paths.py`。配置通用读取、菜单校验、菜单领域模型和两种菜单渲染器相互独立；UI 不再自行解析 YAML，也不直接负责系统进程启动。
 
 ## 开发与测试
 
@@ -186,13 +206,13 @@ GitHub Actions 会在 `main`、`OTAXIO` 推送及拉取请求上运行编译和�
 
 ## 安全设计
 
-- 应用启动采用配置白名单、精确名称匹配、参数列表和 `shell=False`。
+- APP/TOOL 外部启动项共用配置白名单、精确名称匹配、参数列表和 `shell=False`。
 - YAML 使用项目内置的受限解析器，拒绝标签、引用、复杂值和对象构造，并限制文件大小、应用数量、路径和字段类型。
 - 动画路径被限制在 `resource/` 下，阻止通过 `../` 读取任意位置的素材。
 - 待办和 Codex 状态 JSON 在解析前检查大小；待办通过原子替换写入。
 - GitHub AI 工作流拒绝外部用户通过 Issue 或 PR 评论触发密钥作业。
 
-配置文件仍属于本地可信管理面：修改 `apps.yaml` 等同于显式允许 Digit Maid 启动其中列出的程序。
+配置文件仍属于本地可信管理面：在 `menu.yaml` 中增加 `launch` 等同于显式允许 Digit Maid 启动其中列出的程序。
 
 ## 打包
 
@@ -220,6 +240,8 @@ scripts/build_linux_packages.sh
 
 ## 本次重构摘要
 
+- 将 APP 与 TOOL 统一迁移到 `menu.yaml`，支持独立、多层、热加载的菜单树。
+- 拆分配置基础设施、菜单领域模型、菜单校验和列表/圆形菜单渲染器。
 - 修复已提交到动画配置中的 Git 冲突标记。
 - 拆分启动、路径、配置、存储和系统服务层。
 - 阻止未配置应用造成的任意命令执行入口。
