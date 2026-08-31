@@ -16,6 +16,8 @@ def _default_ui_font_family():
 
 
 UI_FONT_FAMILY = _default_ui_font_family()
+DEFAULT_MESSAGE_DURATION_MS = 2000
+
 
 class OutlineLabel(QLabel):
     def __init__(self, text="", enable_outline=True, parent=None):
@@ -53,7 +55,7 @@ class OutlineLabel(QLabel):
         doc.drawContents(painter)
 
 class SpeechBubble(QWidget):
-    def __init__(self, text, target_widget):
+    def __init__(self, text, target_widget, duration_ms=DEFAULT_MESSAGE_DURATION_MS):
         super().__init__(None) # 无父级，作为独立顶层窗口
         self.target = target_widget
         self.text = text
@@ -108,11 +110,15 @@ class SpeechBubble(QWidget):
         self.follow_timer.timeout.connect(self._sync_with_target)
         self.follow_timer.start(33)
         
-        # 2秒后自动淡出或关闭
+        # 根据消息类型使用不同展示时长。
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self.close)
-        self.timer.start(2000)
+        try:
+            duration_ms = int(duration_ms)
+        except (TypeError, ValueError):
+            duration_ms = DEFAULT_MESSAGE_DURATION_MS
+        self.timer.start(max(1000, min(duration_ms, 60000)))
 
     @staticmethod
     def _menu_scale_from_maid_scale(maid_scale):
@@ -272,7 +278,7 @@ class DialogueSystem:
         self.parent = parent_widget
         self.current_bubble = None
 
-    def show_message(self, title, content):
+    def show_message(self, title, content, duration_ms=DEFAULT_MESSAGE_DURATION_MS):
         # 如果之前有气泡，先关闭旧的
         if self.current_bubble:
             try:
@@ -285,7 +291,7 @@ class DialogueSystem:
         safe_content = html.escape(str(content)).replace("\n", "<br>")
         display_text = f"<b>{safe_title}</b><br>{safe_content}"
         
-        self.current_bubble = SpeechBubble(display_text, self.parent)
+        self.current_bubble = SpeechBubble(display_text, self.parent, duration_ms=duration_ms)
         self.current_bubble.show()
 
     def hide_dialogue(self):

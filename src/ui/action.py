@@ -2,7 +2,7 @@
 from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint, QSettings, Qt
 import os
-from src.config import ConfigError, load_app_paths
+from src.config import ConfigError, load_app_menu
 from src.core.paths import config_path, runtime_root
 from src.function import startup, codex_status
 from src.services import app_launcher as open_app
@@ -15,6 +15,7 @@ from .todo_panel import TodoPanel
 
 class MaidActions:
     MENU_VERTICAL_OFFSET_PX = 24
+    CODEX_STATUS_DURATION_MS = 8000
 
     FALL_MODE_LABELS = {
         "smooth": "缓降飘落",
@@ -226,7 +227,7 @@ class MaidActions:
         if hasattr(self.parent, "play_action"):
             self.parent.play_action("interact", force_loop=True)
         title, content = codex_status.get_codex_status_message()
-        self.dialogue.show_message(title, content)
+        self.dialogue.show_message(title, content, duration_ms=self.CODEX_STATUS_DURATION_MS)
         return True
 
     def _is_always_on_top_enabled(self):
@@ -352,6 +353,39 @@ class MaidActions:
             shifted.setY(max(geo.top(), shifted.y()))
         return shifted
 
+    def _read_app_menu(self):
+        try:
+            return load_app_menu()
+        except ConfigError as exc:
+            print(f"读取 apps.yaml 失败: {exc}")
+            return {}
+
+    def _populate_list_app_menu(self, parent_menu, menu_tree):
+        for label, value in menu_tree.items():
+            if isinstance(value, dict):
+                submenu = parent_menu.addMenu(label)
+                self._populate_list_app_menu(submenu, value)
+            elif isinstance(value, list):
+                action = QAction(label, self.parent)
+                action.triggered.connect(
+                    lambda checked, app_name=label: self.do_open_app(app_name)
+                )
+                parent_menu.addAction(action)
+
+    def _build_circular_app_items(self, menu_tree):
+        items = []
+        for label, value in menu_tree.items():
+            if isinstance(value, dict):
+                children = self._build_circular_app_items(value)
+                if children:
+                    items.append({'label': label, 'action': children})
+            elif isinstance(value, list):
+                items.append({
+                    'label': label,
+                    'action': lambda app_name=label: self.do_open_app(app_name),
+                })
+        return items
+
     def show_context_menu(self, global_pos):
         # 拦截：如果气泡菜单已经存在并且开着，重复右击则关闭它（相当于开关切换）
         if hasattr(self, "circular_menu") and self.circular_menu is not None:
@@ -441,16 +475,7 @@ class MaidActions:
 
         # 打开常用软件子菜单
         app_menu = menu.addMenu("APP")
-        
-        try:
-            apps = list(load_app_paths().keys())
-        except ConfigError as exc:
-            print(f"读取 apps.yaml 失败: {exc}")
-            apps = []
-        for app in apps:
-            action = QAction(app, self.parent)
-            action.triggered.connect(lambda checked, a=app: self.do_open_app(a))
-            app_menu.addAction(action)
+        self._populate_list_app_menu(app_menu, self._read_app_menu())
 
         menu.addSeparator()
 
@@ -612,25 +637,7 @@ class MaidActions:
 
     def show_circular_menu(self, global_pos):
         """用半圆形菜单展开相同的选项"""
-        try:
-            apps = list(load_app_paths().keys())
-        except ConfigError as exc:
-            print(f"读取 apps.yaml 失败: {exc}")
-            apps = []
-        
-        # 构造“打开软件”子菜单的数据
-        game_apps = {"Steam","鹰角启动",}
-        game_sub_items = [
-            {'label': app, 'action': lambda a=app: self.do_open_app(a)}
-            for app in apps if app in game_apps
-        ]
-        app_sub_items = [
-            {'label': app, 'action': lambda a=app: self.do_open_app(a)}
-            for app in apps
-            if app != "v2rayN" and app not in game_apps
-        ]
-        if game_sub_items:
-            app_sub_items.append({'label': "GAME", 'action': game_sub_items})
+        app_sub_items = self._build_circular_app_items(self._read_app_menu())
 
         screenshot_sub_items = [
             {'label': '存到桌面', 'action': lambda: self.do_circular_screenshot("desktop")},
