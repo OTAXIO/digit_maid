@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from src.core.paths import runtime_root
 from src.function.todo_store import load_todo_items_by_date, save_todo_items_by_date
 
 
@@ -120,7 +121,7 @@ class TodoPanel(QWidget):
         self.expanded_width = 860
         self.collapsed_width = 300
         self.panel_height = 520
-        self.root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+        self.root_dir = str(runtime_root())
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint

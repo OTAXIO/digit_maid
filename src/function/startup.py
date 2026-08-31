@@ -3,6 +3,8 @@ import plistlib
 import subprocess
 import sys
 
+from src.core.paths import runtime_root, runtime_path
+
 try:
     import winreg
 except Exception:  # pragma: no cover
@@ -27,8 +29,7 @@ def _is_linux():
 
 
 def _project_root():
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    return os.path.abspath(os.path.join(current_dir, "../../"))
+    return str(runtime_root())
 
 
 def _mac_launch_agent_path():
@@ -46,8 +47,7 @@ def _build_startup_program_args():
     if getattr(sys, "frozen", False):
         return [sys.executable]
 
-    run_py = os.path.join(_project_root(), "src", "core", "run.py")
-    return [sys.executable, run_py]
+    return [sys.executable, str(runtime_path("src", "core", "run.py"))]
 
 
 def _build_startup_command():

@@ -8,19 +8,11 @@ from PyQt6.QtCore import Qt, QPoint, QTimer, QSize, QSettings
 from PyQt6.QtGui import QMovie, QTransform
 import sys
 
-# 导入分离后的UI模块
-try:
-    from .dialogue import DialogueSystem
-    from .action import MaidActions
-    from .menu_controller import OptionMenuController
-except ImportError:
-    current_dir = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.abspath(os.path.join(current_dir, "../../"))
-    if project_root not in sys.path:
-        sys.path.append(project_root)
-    from src.ui.dialogue import DialogueSystem
-    from src.ui.action import MaidActions
-    from src.ui.menu_controller import OptionMenuController
+from src.config import ConfigError, load_animation_config
+from src.core.paths import runtime_root
+from src.ui.dialogue import DialogueSystem
+from src.ui.action import MaidActions
+from src.ui.menu_controller import OptionMenuController
 
 class MaidWindow(QWidget):
     def __init__(self):
@@ -36,8 +28,7 @@ class MaidWindow(QWidget):
         self.offset = QPoint()
         
         # 资源目录
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-        self.root_dir = root_dir
+        self.root_dir = str(runtime_root())
         self.current_action = "idle"
         self._edge_hidden = False
         self._edge_hidden_side = None
@@ -345,81 +336,8 @@ class MaidWindow(QWidget):
         self.setWindowTitle('DigitMaid')
 
     def _load_animation_config(self):
-        cfg_path = os.path.join(os.path.dirname(__file__), "maid_animations.yaml")
         try:
-            with open(cfg_path, "r", encoding="utf-8") as f:
-                lines = [line.rstrip("\n") for line in f]
-
-            cfg = {
-                "base_dir": "resource/wisdel/皮肤素材/可用素材",
-                "fall_mode": "smooth",
-                "idle_mode": "default",
-                "smooth_fall": True,
-                "actions": {},
-                "loops": {},
-                # 向后兼容旧结构 animations: {action: {file, loop}}
-                "animations": {},
-            }
-            current_action = None
-            current_section = None
-
-            for raw in lines:
-                line = raw.strip()
-                if not line or line.startswith("#"):
-                    continue
-
-                if raw.startswith("base_dir:"):
-                    cfg["base_dir"] = raw.split(":", 1)[1].strip()
-                    continue
-
-                if raw.startswith("fall_mode:"):
-                    mode = raw.split(":", 1)[1].strip().lower()
-                    if mode in ("smooth", "direct", "none"):
-                        cfg["fall_mode"] = mode
-                    continue
-
-                if raw.startswith("idle_mode:"):
-                    mode = raw.split(":", 1)[1].strip().lower()
-                    if mode in ("default", "sport", "lazy"):
-                        cfg["idle_mode"] = mode
-                    continue
-
-                if raw.startswith("smooth_fall:"):
-                    value = raw.split(":", 1)[1].strip().lower()
-                    cfg["smooth_fall"] = value in ("true", "1", "yes", "on")
-                    continue
-
-                if line in ("actions:", "loops:", "animations:"):
-                    current_section = line[:-1]
-                    continue
-
-                if not current_section:
-                    continue
-
-                # 新结构 actions/loops: "  key: value"
-                if current_section in ("actions", "loops") and raw.startswith("  ") and ":" in line:
-                    k, v = line.split(":", 1)
-                    key = k.strip()
-                    value = v.strip()
-                    if current_section == "actions":
-                        cfg["actions"][key] = value
-                    else:
-                        cfg["loops"][key] = (value.lower() == "true")
-                    continue
-
-                # 旧结构 animations:
-                # action key, e.g. "  idle:"
-                if current_section == "animations" and raw.startswith("  ") and raw.endswith(":") and not raw.startswith("    "):
-                    current_action = line[:-1]
-                    cfg["animations"][current_action] = {}
-                    continue
-
-                if current_section == "animations" and current_action and raw.startswith("    "):
-                    if line.startswith("file:"):
-                        cfg["animations"][current_action]["file"] = line.split(":", 1)[1].strip()
-                    elif line.startswith("loop:"):
-                        v = line.split(":", 1)[1].strip().lower()
-                        cfg["animations"][current_action]["loop"] = (v == "true")
+            cfg = load_animation_config()
 
             saved_idle_mode = str(
                 QSettings("DigitMaid", "DigitMaid").value("mode/idle_mode", "")
@@ -437,7 +355,7 @@ class MaidWindow(QWidget):
                 cfg["smooth_fall"] = (saved_fall_mode == "smooth")
 
             return cfg
-        except Exception as e:
+        except ConfigError as e:
             print(f"读取动作配置失败: {e}")
             return {}
 
@@ -1671,9 +1589,3 @@ class MaidWindow(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-
-if __name__ == '__main__':
-    app = QApplication(sys.argv)
-    maid = MaidWindow()
-    maid.show()
-    sys.exit(app.exec())

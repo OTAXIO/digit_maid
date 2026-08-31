@@ -1,5 +1,4 @@
 import csv
-import json
 import os
 import platform
 import subprocess
@@ -7,8 +6,11 @@ from datetime import datetime
 
 from PyQt6.QtCore import QStandardPaths
 
+from src.core.json_store import JsonStoreError, read_json_file
+
 
 MAX_COMMAND_CHARS = 92
+MAX_STATUS_FILE_BYTES = 256 * 1024
 
 
 def _app_data_dir():
@@ -52,9 +54,8 @@ def _load_bridge_status():
         return None
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-    except Exception as e:
+        payload = read_json_file(path, max_bytes=MAX_STATUS_FILE_BYTES)
+    except JsonStoreError as e:
         return {
             "title": "Codex连接",
             "content": f"状态桥接文件读取失败: {e}",
@@ -63,7 +64,10 @@ def _load_bridge_status():
     if not isinstance(payload, dict):
         return None
 
-    mtime = os.path.getmtime(path)
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = None
     task = payload.get("task") or payload.get("objective") or payload.get("title") or "未命名任务"
     status = payload.get("status") or payload.get("state") or "运行中"
     step = payload.get("step") or payload.get("current_step") or payload.get("message") or ""

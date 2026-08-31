@@ -2,8 +2,11 @@
 from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint, QSettings, Qt
 import os
-from src.function import screen_shot, open_app, startup, codex_status
-from src.function.open_app import load_app_paths
+from src.config import ConfigError, load_app_paths
+from src.core.paths import config_path, runtime_root
+from src.function import startup, codex_status
+from src.services import app_launcher as open_app
+from src.services import screenshot as screen_shot
 from src.input import choice_dialog
 from src.input.choice_dialog import load_dialog_theme
 from src.input.circular_menu import CircularMenuWidget
@@ -133,7 +136,7 @@ class MaidActions:
             self.parent.force_on_top()
 
     def _get_maid_animation_cfg_path(self):
-        return os.path.join(os.path.dirname(__file__), "maid_animations.yaml")
+        return str(config_path("maid_animations.yaml"))
 
     def _get_current_fall_mode(self):
         anim_cfg = getattr(self.parent, "anim_cfg", {}) or {}
@@ -394,7 +397,7 @@ class MaidActions:
         bg_path = theme.get("background", "")
         if bg_path:
             bg_path = os.path.normpath(bg_path.replace("\\", "/"))
-            root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+            root_dir = str(runtime_root())
             if not os.path.isabs(bg_path):
                 bg_path = os.path.join(root_dir, bg_path)
             bg_path = os.path.normpath(bg_path)
@@ -439,7 +442,11 @@ class MaidActions:
         # 打开常用软件子菜单
         app_menu = menu.addMenu("APP")
         
-        apps = list(load_app_paths().keys())
+        try:
+            apps = list(load_app_paths().keys())
+        except ConfigError as exc:
+            print(f"读取 apps.yaml 失败: {exc}")
+            apps = []
         for app in apps:
             action = QAction(app, self.parent)
             action.triggered.connect(lambda checked, a=app: self.do_open_app(a))
@@ -605,7 +612,11 @@ class MaidActions:
 
     def show_circular_menu(self, global_pos):
         """用半圆形菜单展开相同的选项"""
-        apps = list(load_app_paths().keys())
+        try:
+            apps = list(load_app_paths().keys())
+        except ConfigError as exc:
+            print(f"读取 apps.yaml 失败: {exc}")
+            apps = []
         
         # 构造“打开软件”子菜单的数据
         game_apps = {"Steam","鹰角启动",}
