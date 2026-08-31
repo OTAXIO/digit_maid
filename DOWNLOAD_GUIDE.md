@@ -6,19 +6,21 @@
 
 1. 打开项目的 Releases 页面。
 2. 根据你的系统下载对应安装包：
-- Windows: `DigitMaid.exe`
-- macOS: `DigitMaid.dmg`
+- Windows x86_64: `DigitMaid-windows-x86_64.exe`
+- macOS Apple Silicon: `DigitMaid-macos-apple-silicon.dmg`
+- Linux Debian/Ubuntu x86_64: `DigitMaid-linux-x86_64.deb`
+- Linux Fedora/RHEL/openSUSE x86_64: `DigitMaid-linux-x86_64.rpm`
 
 ## 2. Windows 安装步骤
 
-1. 双击下载的 `DigitMaid.exe`。
+1. 双击下载的 `DigitMaid-windows-x86_64.exe`。
 2. 若出现 SmartScreen 提示，点击“更多信息”后选择“仍要运行”。
 <img src="./DOWNLOAD_image/win01.png" alt="Windows 安装界面 1" width="520" />
 <img src="./DOWNLOAD_image/win02.png" alt="Windows 安装界面 2" width="520" />
 
 ## 3. macOS 安装步骤
 
-1. 双击下载的 `DigitMaid.dmg`。
+1. 双击下载的 `DigitMaid-macos-apple-silicon.dmg`。
 2. 在打开的安装窗口中，将 `DigitMaid.app` 拖入 `Applications`（应用程序）文件夹。
 <img src="./DOWNLOAD_image/mac01.png" alt="macOS 安装界面" width="520" />
 3. 打开“应用程序”启动 DigitMaid。
@@ -44,3 +46,20 @@
 ### **钱包不允许穷学生给 Windows 和 Apple 交“证书税”**
 
 哭了
+
+## 6. Linux 安装步骤
+
+Debian/Ubuntu:
+```bash
+sudo apt install ./DigitMaid-linux-x86_64.deb
+```
+
+Fedora/RHEL/openSUSE:
+```bash
+sudo rpm -i DigitMaid-linux-x86_64.rpm
+```
+
+安装后可以从应用菜单启动 DigitMaid，也可以在终端运行：
+```bash
+digitmaid
+```
