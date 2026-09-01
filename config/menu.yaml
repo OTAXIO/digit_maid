@@ -68,9 +68,10 @@ menus:
       action: keyboard_control
     Codex进程:
       action: codex_status
-    V2RayN:
-      launch:
-        - D:\others\TOOLS\V2\v2rayN\v2rayN.exe
-    Clash:
-      launch:
-        - C:\Program Files\Clash Verge\clash-verge.exe
+    VPN:
+      V2RayN:
+        launch:
+          - D:\others\TOOLS\V2\v2rayN\v2rayN.exe
+      Clash:
+        launch:
+          - C:\Program Files\Clash Verge\clash-verge.exe
