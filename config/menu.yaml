@@ -53,10 +53,10 @@ menus:
       MAA:
         ARK:
           launch:
-            -E:\MAA-v5.23.2-win-x64\MAA.exe
+            - E:\MAA-v5.23.2-win-x64\MAA.exe
         END:
           launch:
-            -E:\MaaEnd-win-x86_64-v2.26.0\MaaEnd.exe
+            - E:\MaaEnd-win-x86_64-v2.26.0\MaaEnd.exe
 
   TOOL:
     指针:
