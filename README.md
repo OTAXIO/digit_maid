@@ -133,6 +133,7 @@ menus:
 - `launch` 表示外部启动项，既可用于 APP，也可用于 VPN 等 TOOL；其中的路径会进入统一安全白名单。
 - `action` 表示内置工具，目前支持 `screenshot`、`keyboard_control` 和 `codex_status`，只能放在 TOOL。
 - 所有 `launch` 项的名称必须全局唯一，避免不同分类指向不明确的启动目标。
+- YAML 列表的短横线后必须保留一个空格，例如 `- D:\Tools\app.exe`；格式错误会在桌宠对话中显示具体原因。
 
 上例分别生成 `APP -> 开发 -> 我的编辑器`、`APP -> GAME -> Steam`、`TOOL -> 系统工具` 和 `TOOL -> 网络 -> VPN`。
 
