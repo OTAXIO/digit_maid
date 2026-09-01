@@ -50,17 +50,27 @@ menus:
           - C:\Program Files (x86)\Hypergryph Launcher\Launcher.exe
           - C:\Program Files\Hypergryph Launcher\Launcher.exe
           - /Applications/明日方舟.app
+      MAA:
+        ARK:
+          launch:
+            -E:\MAA-v5.23.2-win-x64\MAA.exe
+        END:
+          launch:
+            -E:\MaaEnd-win-x86_64-v2.26.0\MaaEnd.exe
 
   TOOL:
-    系统工具:
-      截图:
-        action: screenshot
-      控制移动:
-        action: keyboard_control
-    开发工具:
-      Codex进程:
-        action: codex_status
-    网络工具:
-      VPN:
-        launch:
-          - D:\others\TOOLS\V2\v2rayN\v2rayN.exe
+    指针:
+      launch:
+        - C:\Users\35303\Desktop\古老物件\SoftCursor.exe
+    截图:
+      action: screenshot
+    控制移动:
+      action: keyboard_control
+    Codex进程:
+      action: codex_status
+    V2RayN:
+      launch:
+        - D:\others\TOOLS\V2\v2rayN\v2rayN.exe
+    Clash:
+      launch:
+        - C:\Program Files\Clash Verge\clash-verge.exe
