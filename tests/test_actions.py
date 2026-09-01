@@ -3,6 +3,7 @@ from unittest.mock import Mock, patch
 
 try:
     from src.ui.action import MaidActions, codex_status
+    from src.config import ConfigError
 except ImportError as exc:  # Linux runners may not provide Qt's optional EGL library.
     MaidActions = None
     codex_status = None
@@ -47,6 +48,18 @@ class MaidActionsTests(unittest.TestCase):
 
         self.assertEqual(result, "已启动v2rayN")
         launch.assert_called_once_with("v2rayN", "启动VPN")
+
+    def test_menu_config_error_is_visible_in_dialogue(self):
+        with patch("src.ui.action.load_menu_config", side_effect=ConfigError("第 7 行有误")):
+            config = self.actions._read_menu_config()
+
+        self.assertEqual(config.applications, ())
+        self.assertEqual(config.tools, ())
+        self.dialogue.show_message.assert_called_once_with(
+            "菜单配置错误",
+            "请检查 config/menu.yaml：第 7 行有误",
+            duration_ms=10000,
+        )
 
 
 if __name__ == "__main__":

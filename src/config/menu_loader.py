@@ -131,7 +131,9 @@ def _parse_launcher(
     seen_launchers: set[str],
 ) -> Optional[MenuEntry]:
     if not isinstance(raw_targets, list):
-        raise ConfigError(f"launch 必须是路径列表: {label}")
+        raise ConfigError(
+            f"launch 必须是路径列表: {label}；每条路径应写成 '- 路径'（短横线后有空格）"
+        )
 
     counters["launchers"] += 1
     if counters["launchers"] > MAX_LAUNCHERS:

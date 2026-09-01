@@ -73,6 +73,23 @@ menus:
             with self.assertRaises(ConfigError):
                 load_menu_config(path)
 
+    def test_list_item_requires_space_after_dash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write(
+                directory,
+                """
+menus:
+  APP:
+    MAA:
+      ARK:
+        launch:
+          -E:\\MAA\\MAA.exe
+  TOOL: {}
+""",
+            )
+            with self.assertRaisesRegex(ConfigError, "第 7 行.*短横线后必须有空格"):
+                load_menu_config(path)
+
     def test_builtin_action_cannot_be_placed_in_app(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self._write(

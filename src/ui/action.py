@@ -19,6 +19,7 @@ from .todo_panel import TodoPanel
 class MaidActions:
     MENU_VERTICAL_OFFSET_PX = 24
     CODEX_STATUS_DURATION_MS = 8000
+    MENU_CONFIG_ERROR_DURATION_MS = 10000
 
     FALL_MODE_LABELS = {
         "smooth": "缓降飘落",
@@ -360,7 +361,13 @@ class MaidActions:
         try:
             return load_menu_config()
         except ConfigError as exc:
+            message = f"请检查 config/menu.yaml：{exc}"
             print(f"读取 menu.yaml 失败: {exc}")
+            self.dialogue.show_message(
+                "菜单配置错误",
+                message,
+                duration_ms=self.MENU_CONFIG_ERROR_DURATION_MS,
+            )
             return MenuConfig()
 
     def _list_tool_handlers(self):

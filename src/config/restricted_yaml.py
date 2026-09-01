@@ -55,6 +55,10 @@ def _tokenize(text: str) -> list[_Token]:
         content = raw_line.lstrip(" ")
         if not content or content.startswith("#"):
             continue
+        if content.startswith("-") and content != "-" and not content.startswith("- "):
+            raise RestrictedYamlError(
+                f"第 {line_number} 行：列表短横线后必须有空格（应写成 '- 内容'）"
+            )
         indent_text = raw_line[: len(raw_line) - len(content)]
         if "\t" in indent_text:
             raise RestrictedYamlError(f"第 {line_number} 行：不能使用 Tab 缩进")
