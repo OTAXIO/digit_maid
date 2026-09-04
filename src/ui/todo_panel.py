@@ -6,7 +6,6 @@ import sys
 from PyQt6.QtCore import QDate, QEvent, QPoint, QRect, QSize, Qt, QTime, QTimer, QPropertyAnimation
 from PyQt6.QtGui import QBrush, QColor, QIcon, QTextCharFormat, QCursor, QTextOption
 from PyQt6.QtWidgets import (
-    QAbstractItemDelegate,
     QAbstractItemView,
     QApplication,
     QCalendarWidget,
@@ -18,10 +17,8 @@ from PyQt6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QStackedWidget,
     QTextEdit,
-    QStyledItemDelegate,
-    QStyle,
-    QStyleOptionViewItem,
     QVBoxLayout,
     QWidget,
 )
@@ -47,83 +44,6 @@ def _default_ui_font_family():
     return "Microsoft YaHei"
 
 
-class _TodoItemEditDelegate(QStyledItemDelegate):
-    def createEditor(self, parent, option, index):
-        editor = QTextEdit(parent)
-        editor.setAcceptRichText(False)
-        editor.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
-        editor.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        editor.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        editor.setTabChangesFocus(True)
-        editor.setFrameShape(QFrame.Shape.NoFrame)
-        editor.setAutoFillBackground(True)
-        editor.viewport().setAutoFillBackground(True)
-        editor.setStyleSheet(
-            "QTextEdit {"
-            "background-color: #fffaf7;"
-            "color: #332724;"
-            "border: 1px solid #b82931;"
-            "border-radius: 12px;"
-            "padding: 8px 10px;"
-            "selection-background-color: #d99a9e;"
-            "selection-color: #2d2220;"
-            "}"
-        )
-        editor.textChanged.connect(lambda: self._limit_editor_text(editor))
-        return editor
-
-    @staticmethod
-    def _limit_editor_text(editor):
-        text = editor.toPlainText()
-        if len(text) <= MAX_TODO_EDITOR_CHARS:
-            return
-        editor.blockSignals(True)
-        editor.setPlainText(text[:MAX_TODO_EDITOR_CHARS])
-        cursor = editor.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-        editor.setTextCursor(cursor)
-        editor.blockSignals(False)
-
-    def setEditorData(self, editor, index):
-        editor.setPlainText(str(index.data(Qt.ItemDataRole.EditRole) or ""))
-        cursor = editor.textCursor()
-        cursor.movePosition(cursor.MoveOperation.End)
-        editor.setTextCursor(cursor)
-
-    def setModelData(self, editor, model, index):
-        model.setData(index, editor.toPlainText(), Qt.ItemDataRole.EditRole)
-
-    def updateEditorGeometry(self, editor, option, index):
-        rect = option.rect.adjusted(2, 2, -2, -2)
-        min_height = 56
-        if rect.height() < min_height:
-            grow = min_height - rect.height()
-            rect = QRect(rect.left(), max(0, rect.top() - grow // 2), rect.width(), min_height)
-        editor.setGeometry(rect)
-
-    def paint(self, painter, option, index):
-        opt = QStyleOptionViewItem(option)
-        self.initStyleOption(opt, index)
-        if option.state & QStyle.StateFlag.State_Editing:
-            opt.text = ""
-            opt.state &= ~QStyle.StateFlag.State_Selected
-
-        widget = opt.widget
-        style = widget.style() if widget is not None else QApplication.style()
-        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
-
-    def eventFilter(self, obj, event):
-        if isinstance(obj, QTextEdit) and event.type() == QEvent.Type.KeyPress:
-            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-                if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
-                    return super().eventFilter(obj, event)
-                self.commitData.emit(obj)
-                self.closeEditor.emit(obj, QAbstractItemDelegate.EndEditHint.NoHint)
-                return True
-
-        return super().eventFilter(obj, event)
-
-
 class TodoPanel(QWidget):
     def __init__(self, on_close_callback=None, parent=None):
         super().__init__(None)
@@ -139,12 +59,16 @@ class TodoPanel(QWidget):
         self._drag_border_margin = 10
         self._fold_anim = None
         self._editing_index = None
+        self._editing_date_key = None
         self._last_editing_index = None
-        self._suppress_item_changed = False
+        self._editor_populating = False
+        self._edit_save_timer = QTimer(self)
+        self._edit_save_timer.setSingleShot(True)
+        self._edit_save_timer.setInterval(600)
+        self._edit_save_timer.timeout.connect(self._save_current_editor)
         self._today_page_size = 6
         self._today_page_index = 0
         self._today_visible_indexes = []
-        self._delete_slot_visible = False
 
         self.expanded_width = 940
         self.collapsed_width = 400
@@ -300,6 +224,104 @@ class TodoPanel(QWidget):
                 border: 1px solid #eadbd6;
                 border-radius: 15px;
             }
+            QFrame#task_editor_page {
+                background: #fbf7f5;
+                border: 1px solid #eadbd6;
+                border-radius: 15px;
+            }
+            QLabel#editor_state_badge {
+                color: #8b0000;
+                background: #f3dfdb;
+                border: 1px solid #e4c7c1;
+                border-radius: 9px;
+                padding: 4px 10px;
+                font-size: 11px;
+                font-weight: 700;
+            }
+            QLabel#editor_state_badge[completed="true"] {
+                color: #5d6b60;
+                background: #e8eee8;
+                border-color: #ccd9ce;
+            }
+            QLabel#editor_hint {
+                color: #8b746e;
+                font-size: 11px;
+                font-weight: 400;
+            }
+            QLabel#editor_hint[error="true"] {
+                color: #a71d25;
+                font-weight: 600;
+            }
+            QTextEdit#task_editor {
+                background: #fffdfc;
+                color: #302522;
+                border: 2px solid #d9b7b0;
+                border-radius: 14px;
+                padding: 14px;
+                font-size: 15px;
+                font-weight: 500;
+                selection-background-color: #d99a9e;
+                selection-color: #2d2220;
+            }
+            QTextEdit#task_editor:focus {
+                border-color: #a9242c;
+                background: #ffffff;
+            }
+            QTextEdit#task_editor[completed="true"] {
+                color: #887672;
+                background: #f0ebe9;
+                border-color: #ddd1cd;
+                text-decoration: line-through;
+            }
+            QPushButton#back_to_list_btn {
+                color: #765e58;
+                background: transparent;
+                border: none;
+                padding: 4px 8px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton#back_to_list_btn:hover {
+                color: #8b0000;
+                background: #f3e5e1;
+                border-radius: 8px;
+            }
+            QPushButton#delete_task_btn,
+            QPushButton#complete_task_btn {
+                min-height: 40px;
+                border-radius: 12px;
+                padding: 0 16px;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QPushButton#delete_task_btn {
+                color: #8b0000;
+                background: #fff8f6;
+                border: 1px solid #dfc3bd;
+            }
+            QPushButton#delete_task_btn:hover {
+                color: #ffffff;
+                background: #a9242c;
+                border-color: #a9242c;
+            }
+            QPushButton#complete_task_btn {
+                color: #ffffff;
+                background: #a9242c;
+                border: 1px solid #a9242c;
+            }
+            QPushButton#complete_task_btn:hover {
+                background: #c03740;
+                border-color: #c03740;
+            }
+            QPushButton#complete_task_btn[completed="true"] {
+                color: #506354;
+                background: #e4ece5;
+                border-color: #c6d5c8;
+            }
+            QPushButton#complete_task_btn[completed="true"]:hover {
+                background: #d7e3d8;
+                border-color: #afc4b2;
+            }
             QPushButton#icon_action_btn {
                 min-width: 38px;
                 max-width: 38px;
@@ -315,22 +337,6 @@ class TodoPanel(QWidget):
             }
             QPushButton#icon_action_btn:pressed {
                 background-color: #e5c7c0;
-            }
-            QPushButton#todo_state_btn {
-                color: #8b0000;
-                background-color: #f6e9e5;
-                border: 1px solid #dcbeb7;
-                border-radius: 8px;
-                font-size: 14px;
-                font-weight: 700;
-            }
-            QPushButton#todo_state_btn:hover {
-                color: #ffffff;
-                background-color: #a9242c;
-                border-color: #a9242c;
-            }
-            QPushButton#todo_state_btn:pressed {
-                background-color: #841a21;
             }
             QCalendarWidget {
                 background-color: #fbf7f5;
@@ -448,7 +454,14 @@ class TodoPanel(QWidget):
         self.left_title.setObjectName("section_title")
         left_layout.addWidget(self.left_title)
 
-        self.today_list = QListWidget(left_section)
+        self.daily_stack = QStackedWidget(left_section)
+
+        self.task_list_page = QWidget(self.daily_stack)
+        list_page_layout = QVBoxLayout(self.task_list_page)
+        list_page_layout.setContentsMargins(0, 0, 0, 0)
+        list_page_layout.setSpacing(8)
+
+        self.today_list = QListWidget(self.task_list_page)
         self.today_list.setViewportMargins(0, 0, 0, 0)
         self.today_list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.today_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
@@ -458,59 +471,93 @@ class TodoPanel(QWidget):
         self.today_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.today_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
 
-        self._today_item_delegate = _TodoItemEditDelegate(self.today_list)
-        self.today_list.setItemDelegate(self._today_item_delegate)
-
         self.today_list.itemClicked.connect(self._on_today_item_selected)
-        self.today_list.itemChanged.connect(self._on_today_item_changed)
-        self.today_list.itemDelegate().closeEditor.connect(self._on_today_editor_closed)
-        self.today_list.itemSelectionChanged.connect(self._position_selected_delete_button)
-        self.today_list.verticalScrollBar().valueChanged.connect(self._position_selected_delete_button)
-        self.today_list.horizontalScrollBar().valueChanged.connect(self._position_selected_delete_button)
         self.today_list.viewport().installEventFilter(self)
-        left_layout.addWidget(self.today_list, 1)
+        list_page_layout.addWidget(self.today_list, 1)
 
         page_row = QHBoxLayout()
         page_row.setContentsMargins(0, 0, 0, 0)
         page_row.setSpacing(6)
 
-        self.prev_page_btn = QPushButton("上一页", left_section)
+        self.prev_page_btn = QPushButton("上一页", self.task_list_page)
         self.prev_page_btn.setObjectName("todo_page_btn")
         self.prev_page_btn.clicked.connect(self._go_prev_today_page)
         page_row.addWidget(self.prev_page_btn)
 
-        self.today_page_label = QLabel("1/1", left_section)
+        self.today_page_label = QLabel("1/1", self.task_list_page)
         self.today_page_label.setObjectName("todo_page_label")
         page_row.addWidget(self.today_page_label)
 
-        self.next_page_btn = QPushButton("下一页", left_section)
+        self.next_page_btn = QPushButton("下一页", self.task_list_page)
         self.next_page_btn.setObjectName("todo_page_btn")
         self.next_page_btn.clicked.connect(self._go_next_today_page)
         page_row.addWidget(self.next_page_btn)
 
         page_row.addStretch(1)
-        left_layout.addLayout(page_row)
+        list_page_layout.addLayout(page_row)
+        self.daily_stack.addWidget(self.task_list_page)
 
-        self.delete_btn = QPushButton("", self.today_list)
-        self.delete_btn.setObjectName("icon_action_btn")
+        self.task_editor_page = QFrame(self.daily_stack)
+        self.task_editor_page.setObjectName("task_editor_page")
+        editor_layout = QVBoxLayout(self.task_editor_page)
+        editor_layout.setContentsMargins(12, 12, 12, 12)
+        editor_layout.setSpacing(10)
+
+        editor_header = QHBoxLayout()
+        editor_header.setContentsMargins(0, 0, 0, 0)
+        self.edit_state_badge = QLabel("待完成", self.task_editor_page)
+        self.edit_state_badge.setObjectName("editor_state_badge")
+        editor_header.addWidget(self.edit_state_badge)
+        editor_header.addStretch(1)
+        self.back_to_list_btn = QPushButton("← 返回列表", self.task_editor_page)
+        self.back_to_list_btn.setObjectName("back_to_list_btn")
+        self.back_to_list_btn.clicked.connect(self._leave_task_editor)
+        editor_header.addWidget(self.back_to_list_btn)
+        editor_layout.addLayout(editor_header)
+
+        self.task_editor = QTextEdit(self.task_editor_page)
+        self.task_editor.setObjectName("task_editor")
+        self.task_editor.setAcceptRichText(False)
+        self.task_editor.setWordWrapMode(
+            QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere
+        )
+        self.task_editor.setPlaceholderText("输入 HH:MM 和待办内容")
+        self.task_editor.setTabChangesFocus(True)
+        self.task_editor.textChanged.connect(self._on_task_editor_text_changed)
+        editor_layout.addWidget(self.task_editor, 1)
+
+        self.editor_hint = QLabel(
+            "修改会自动保存；时间格式为 HH:MM。",
+            self.task_editor_page,
+        )
+        self.editor_hint.setObjectName("editor_hint")
+        self.editor_hint.setWordWrap(True)
+        editor_layout.addWidget(self.editor_hint)
+
+        editor_actions = QHBoxLayout()
+        editor_actions.setContentsMargins(0, 0, 0, 0)
+        editor_actions.setSpacing(9)
+
+        self.delete_btn = QPushButton("删除", self.task_editor_page)
+        self.delete_btn.setObjectName("delete_task_btn")
         self.delete_btn.setToolTip("删除当前事项")
-        self.delete_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.delete_btn.clicked.connect(self._delete_selected_item)
-        self.delete_btn.setFixedSize(24, 24)
-        self.delete_btn.hide()
-        self._apply_icon_button(self.delete_btn, "delete.png")
+        editor_actions.addWidget(self.delete_btn, 1)
 
-        self.complete_btn = QPushButton("✓", self.today_list)
-        self.complete_btn.setObjectName("todo_state_btn")
+        self.complete_btn = QPushButton("已完成", self.task_editor_page)
+        self.complete_btn.setObjectName("complete_task_btn")
         self.complete_btn.setToolTip("标记为已完成")
-        self.complete_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.complete_btn.clicked.connect(self._toggle_selected_completion)
-        self.complete_btn.setFixedSize(24, 24)
-        self.complete_btn.hide()
+        editor_actions.addWidget(self.complete_btn, 1)
+        editor_layout.addLayout(editor_actions)
 
-        input_card = QFrame(left_section)
-        input_card.setObjectName("input_card")
-        input_action_row = QHBoxLayout(input_card)
+        self.daily_stack.addWidget(self.task_editor_page)
+        self.daily_stack.setCurrentWidget(self.task_list_page)
+        left_layout.addWidget(self.daily_stack, 1)
+
+        self.input_card = QFrame(left_section)
+        self.input_card.setObjectName("input_card")
+        input_action_row = QHBoxLayout(self.input_card)
         input_action_row.setContentsMargins(7, 7, 7, 7)
         input_action_row.setSpacing(8)
 
@@ -536,7 +583,7 @@ class TodoPanel(QWidget):
         self._apply_icon_button(self.upload_btn, "upload.png")
         input_action_row.addWidget(self.upload_btn)
 
-        left_layout.addWidget(input_card)
+        left_layout.addWidget(self.input_card)
 
         content_layout.addWidget(left_section, 1)
 
@@ -707,129 +754,174 @@ class TodoPanel(QWidget):
         button.setText(filename.split(".")[0])
 
     def _clear_editing_state(self, clear_input=False, clear_selection=True):
+        self._edit_save_timer.stop()
         self._editing_index = None
+        self._editing_date_key = None
         self._last_editing_index = None
         if clear_selection:
             self.today_list.clearSelection()
             self.today_list.setCurrentRow(-1)
-        self._set_delete_slot_visible(False)
-        self._position_selected_delete_button()
+        if hasattr(self, "daily_stack"):
+            self.daily_stack.setCurrentWidget(self.task_list_page)
+        if hasattr(self, "input_card"):
+            self.input_card.show()
+        if hasattr(self, "left_title") and hasattr(self, "calendar"):
+            self._sync_daily_section_caption()
         if clear_input:
             self.todo_input.clear()
             if hasattr(self, "ddl_input"):
                 self.ddl_input.setText(self._default_ddl_text())
 
-    def _set_delete_slot_visible(self, visible):
-        if not hasattr(self, "today_list"):
-            return
+    @staticmethod
+    def _refresh_dynamic_style(widget):
+        style = widget.style()
+        style.unpolish(widget)
+        style.polish(widget)
+        widget.update()
 
-        target_visible = bool(visible)
-        if self._delete_slot_visible == target_visible:
-            return
+    def _set_editor_feedback(self, message, *, error=False):
+        self.editor_hint.setText(message)
+        self.editor_hint.setProperty("error", bool(error))
+        self._refresh_dynamic_style(self.editor_hint)
 
-        left_margin = 62 if target_visible else 0
-        self.today_list.setViewportMargins(left_margin, 0, 0, 0)
-        self._delete_slot_visible = target_visible
-        self._update_today_item_size_hints()
+    def _apply_task_editor_state(self, task, *, feedback=None):
+        completed = task.get("completed") is True
+        self.task_editor.setReadOnly(completed)
+        self.task_editor.setProperty("completed", completed)
+        self.complete_btn.setProperty("completed", completed)
+        self.edit_state_badge.setProperty("completed", completed)
+        self.complete_btn.setText("未完成" if completed else "已完成")
+        self.complete_btn.setToolTip(
+            "恢复为未完成" if completed else "保存修改并标记为已完成"
+        )
+        self.edit_state_badge.setText("已完成" if completed else "待完成")
+        self._refresh_dynamic_style(self.task_editor)
+        self._refresh_dynamic_style(self.complete_btn)
+        self._refresh_dynamic_style(self.edit_state_badge)
 
-    def _position_selected_delete_button(self):
-        if not hasattr(self, "delete_btn") or not hasattr(self, "complete_btn"):
-            return
-
-        if self._editing_index is None:
-            self._set_delete_slot_visible(False)
-            self.delete_btn.hide()
-            self.complete_btn.hide()
-            return
-
-        today_items = self._ensure_date_items(self._selected_date_key())
-        if self._editing_index not in self._today_visible_indexes:
-            self._set_delete_slot_visible(False)
-            self.delete_btn.hide()
-            self.complete_btn.hide()
-            return
-
-        current_row = self._today_visible_indexes.index(self._editing_index)
-        item = self.today_list.item(current_row)
-        if item is None:
-            self._set_delete_slot_visible(False)
-            self.delete_btn.hide()
-            self.complete_btn.hide()
-            return
-
-        model_index = self._visible_row_to_model_index(current_row)
-        if model_index < 0 or model_index >= len(today_items):
-            self._set_delete_slot_visible(False)
-            self.delete_btn.hide()
-            self.complete_btn.hide()
-            return
-
-        self._set_delete_slot_visible(True)
-        selected_task = self._normalize_task_item(today_items[model_index])
-        is_completed = selected_task["completed"]
-        self.complete_btn.setText("↩" if is_completed else "✓")
-        self.complete_btn.setToolTip("恢复为未完成" if is_completed else "标记为已完成")
-
-        rect = self.today_list.visualItemRect(item)
-        if not rect.isValid() or rect.height() <= 0:
-            self.delete_btn.hide()
-            self.complete_btn.hide()
-            return
-
-        viewport_geo = self.today_list.viewport().geometry()
-        if rect.bottom() < 0 or rect.top() > viewport_geo.height():
-            self.delete_btn.hide()
-            self.complete_btn.hide()
-            return
-
-        delete_x = max(32, viewport_geo.left() - self.delete_btn.width() - 4)
-        complete_x = max(4, delete_x - self.complete_btn.width() - 4)
-        y = viewport_geo.top() + rect.top() + max(0, (rect.height() - self.delete_btn.height()) // 2)
-        self.complete_btn.move(complete_x, y)
-        self.delete_btn.move(delete_x, y)
-        self.complete_btn.raise_()
-        self.delete_btn.raise_()
-        self.complete_btn.show()
-        self.delete_btn.show()
-
-    def _position_today_inline_editor(self, editor=None):
-        if editor is None:
-            editor = self.today_list.findChild(QTextEdit)
-            if editor is None:
-                editor = self.today_list.findChild(QLineEdit)
-        if editor is None:
-            return
-
-        target_item = None
-        if self._editing_index is not None and self._editing_index in self._today_visible_indexes:
-            target_row = self._today_visible_indexes.index(self._editing_index)
-            target_item = self.today_list.item(target_row)
-        if target_item is None:
-            selected_items = self.today_list.selectedItems()
-            if selected_items:
-                target_item = selected_items[0]
-            else:
-                current_row = self.today_list.currentRow()
-                if 0 <= current_row < self.today_list.count():
-                    target_item = self.today_list.item(current_row)
-
-        if target_item is None:
-            return
-
-        item_rect = self.today_list.visualItemRect(target_item)
-        if not item_rect.isValid() or item_rect.height() <= 0:
-            return
-
-        editor_width = max(120, self.today_list.viewport().width() - 4)
-        if isinstance(editor, QTextEdit):
-            editor.viewport().setAutoFillBackground(True)
-            editor_height = max(34, item_rect.height() - 4)
+        if feedback is not None:
+            self._set_editor_feedback(feedback)
+        elif completed:
+            self._set_editor_feedback("内容已锁定；可删除或恢复为未完成。")
         else:
-            editor_height = min(max(30, editor.sizeHint().height() + 6), max(30, item_rect.height() - 4))
+            self._set_editor_feedback("修改会自动保存；时间格式为 HH:MM。")
 
-        y = item_rect.top() + max(0, (item_rect.height() - editor_height) // 2)
-        editor.setGeometry(2, y, editor_width, editor_height)
-        editor.raise_()
+    def _open_task_editor(self, date_key, index):
+        tasks = self._ensure_date_items(date_key)
+        if index < 0 or index >= len(tasks):
+            self._set_status_text("未能定位当前事项，请重新选择")
+            return False
+
+        task = self._normalize_task_item(tasks[index])
+        self._edit_save_timer.stop()
+        self._editing_date_key = date_key
+        self._editing_index = index
+        self._last_editing_index = index
+
+        editor_text = f"{task['ddl']} {task['text']}" if task["ddl"] else task["text"]
+        self._editor_populating = True
+        self.task_editor.setPlainText(editor_text)
+        cursor = self.task_editor.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        self.task_editor.setTextCursor(cursor)
+        self._editor_populating = False
+
+        self._apply_task_editor_state(task)
+        self.daily_stack.setCurrentWidget(self.task_editor_page)
+        self.input_card.hide()
+        self.left_title.setText(f"编辑任务 · {date_key}")
+        self._set_status_text(
+            "已完成事项只能删除或恢复为未完成"
+            if task["completed"]
+            else "正在编辑，修改会自动保存"
+        )
+        if not task["completed"]:
+            QTimer.singleShot(0, self.task_editor.setFocus)
+        return True
+
+    def _on_task_editor_text_changed(self):
+        if self._editor_populating or self.task_editor.isReadOnly():
+            return
+
+        text = self.task_editor.toPlainText()
+        if len(text) > MAX_TODO_EDITOR_CHARS:
+            self._editor_populating = True
+            self.task_editor.setPlainText(text[:MAX_TODO_EDITOR_CHARS])
+            cursor = self.task_editor.textCursor()
+            cursor.movePosition(cursor.MoveOperation.End)
+            self.task_editor.setTextCursor(cursor)
+            self._editor_populating = False
+            self._set_editor_feedback(
+                f"输入已限制为 {MAX_TODO_TEXT_CHARS} 个正文字符。",
+                error=True,
+            )
+        else:
+            self._set_editor_feedback("正在输入…")
+        self._edit_save_timer.start()
+
+    def _save_current_editor(self):
+        self._edit_save_timer.stop()
+        date_key = self._editing_date_key
+        index = self._editing_index
+        if date_key is None or index is None:
+            return True
+
+        tasks = self._ensure_date_items(date_key)
+        if index < 0 or index >= len(tasks):
+            self._set_editor_feedback("事项已发生变化，请返回列表后重新选择。", error=True)
+            return False
+
+        old_task = self._normalize_task_item(tasks[index])
+        if old_task["completed"]:
+            return True
+
+        new_ddl, new_text, error_text = self._parse_editor_text(
+            self.task_editor.toPlainText(),
+            old_task["ddl"],
+        )
+        if error_text:
+            self._set_editor_feedback(error_text, error=True)
+            self._set_status_text(error_text)
+            return False
+
+        updated_task = {"ddl": new_ddl, "text": new_text, "completed": False}
+        if updated_task == old_task:
+            self._set_editor_feedback("没有未保存的修改。")
+            return True
+
+        previous_items = deepcopy(self.items_by_date)
+        tasks[index] = updated_task
+        tasks.sort(key=self._task_sort_key)
+        self.items_by_date[date_key] = tasks
+        new_index = next(
+            (task_index for task_index, task in enumerate(tasks) if task is updated_task),
+            index,
+        )
+        self._editing_index = new_index
+        self._last_editing_index = new_index
+
+        if not self._persist_items():
+            self.items_by_date = previous_items
+            self._editing_index = index
+            self._last_editing_index = index
+            self._set_editor_feedback("保存失败，请检查数据目录权限后重试。", error=True)
+            self._set_status_text("保存失败，修改未生效")
+            return False
+
+        self._refresh_today_list()
+        self._refresh_calendar_marks()
+        self._refresh_month_list()
+        self._set_editor_feedback("✓ 修改已自动保存")
+        self._set_status_text("修改已保存")
+        return True
+
+    def _leave_task_editor(self, _checked=False, *, save=True):
+        if save and not self._save_current_editor():
+            return False
+        self._clear_editing_state(clear_input=False, clear_selection=True)
+        self._refresh_today_list()
+        self._set_status_text("已返回任务列表")
+        return True
 
     def _set_status_text(self, text):
         self.subtitle_label.setText(text)
@@ -1108,10 +1200,18 @@ class TodoPanel(QWidget):
         )
         return self._visible_row_to_model_index(row)
 
+    def _current_task_context(self):
+        date_key = self._editing_date_key or self._selected_date_key()
+        today_items = self._ensure_date_items(date_key)
+        if self._editing_date_key is not None:
+            index = self._editing_index if self._editing_index is not None else -1
+        else:
+            index = self._selected_model_index(today_items)
+        return date_key, today_items, index
+
     def _toggle_selected_completion(self):
-        today_key = self._selected_date_key()
-        today_items = self._ensure_date_items(today_key)
-        index = self._selected_model_index(today_items)
+        self._edit_save_timer.stop()
+        today_key, today_items, index = self._current_task_context()
         if index < 0 or index >= len(today_items):
             self._set_status_text("请先选择一条事项")
             return
@@ -1119,51 +1219,62 @@ class TodoPanel(QWidget):
         original_task = self._normalize_task_item(today_items[index])
         previous_items = deepcopy(self.items_by_date)
         task = dict(original_task)
-        editor = self.today_list.findChild(QTextEdit)
-        if editor is None:
-            editor = self.today_list.findChild(QLineEdit)
-        if editor is not None and not original_task["completed"]:
+        editor_is_open = (
+            self._editing_date_key is not None
+            and self.daily_stack.currentWidget() is self.task_editor_page
+        )
+        if editor_is_open and not original_task["completed"]:
             parsed_ddl, parsed_text, error_text = self._parse_editor_text(
-                editor.toPlainText() if isinstance(editor, QTextEdit) else editor.text(),
+                self.task_editor.toPlainText(),
                 original_task["ddl"],
             )
             if error_text:
+                self._set_editor_feedback(error_text, error=True)
                 self._set_status_text(error_text)
                 return
             task["ddl"] = parsed_ddl
             task["text"] = parsed_text
-            self._finish_today_inline_edit(save=False, clear_selection=False)
-            today_items = self._ensure_date_items(today_key)
-            if index >= len(today_items):
-                self._set_status_text("未能定位当前事项，请重新选择")
-                return
 
         task["completed"] = not task["completed"]
         today_items[index] = task
         today_items.sort(key=self._task_sort_key)
         self.items_by_date[today_key] = today_items
+        new_index = next(
+            (task_index for task_index, item in enumerate(today_items) if item is task),
+            index,
+        )
         if not self._persist_items():
             self.items_by_date = previous_items
+            self._editing_index = index
+            self._last_editing_index = index
             self._refresh_today_list()
             self._refresh_calendar_marks()
             self._refresh_month_list()
-            self._clear_editing_state(clear_input=False)
+            if editor_is_open:
+                self._apply_task_editor_state(original_task)
+                self._set_editor_feedback("保存失败，完成状态未改变。", error=True)
             self._set_status_text("保存失败，完成状态未改变")
             return
+
+        self._editing_index = new_index
+        self._last_editing_index = new_index
         self._refresh_today_list()
         self._refresh_calendar_marks()
         self._refresh_month_list()
-        self._clear_editing_state(clear_input=False)
-        self._set_status_text("已标记为完成" if task["completed"] else "已恢复为未完成")
+        feedback = "✓ 已标记为完成" if task["completed"] else "✓ 已恢复为未完成"
+        if editor_is_open:
+            self._apply_task_editor_state(task, feedback=feedback)
+            if not task["completed"]:
+                QTimer.singleShot(0, self.task_editor.setFocus)
+        self._set_status_text(feedback.removeprefix("✓ "))
 
     def _delete_selected_item(self):
-        today_key = self._selected_date_key()
-        today_items = self._ensure_date_items(today_key)
+        self._edit_save_timer.stop()
+        today_key, today_items, index = self._current_task_context()
         if not today_items:
-            self._clear_editing_state(clear_input=True)
+            self._clear_editing_state(clear_input=False)
             return
 
-        index = self._selected_model_index(today_items)
         if index < 0 or index >= len(today_items):
             self._set_status_text("请先点击一条事项后再删除")
             return
@@ -1181,124 +1292,22 @@ class TodoPanel(QWidget):
             self._refresh_today_list()
             self._refresh_calendar_marks()
             self._refresh_month_list()
+            if self._editing_date_key is not None:
+                self._set_editor_feedback("保存失败，事项未删除。", error=True)
             self._set_status_text("保存失败，事项未删除")
             return
 
-        self.todo_input.clear()
+        self._clear_editing_state(clear_input=False)
         self._refresh_today_list()
         self._refresh_calendar_marks()
         self._refresh_month_list()
-        self._clear_editing_state(clear_input=True)
         self._set_status_text("已删除事项")
 
     def _on_today_item_selected(self, item):
         row = self.today_list.row(item)
         index = self._visible_row_to_model_index(row)
-        today_items = self._ensure_date_items(self._selected_date_key())
-        if 0 <= index < len(today_items):
-            self.today_list.setCurrentItem(item)
-            item.setSelected(True)
-            self._editing_index = index
-            self._last_editing_index = index
-            self._position_selected_delete_button()
-            if self._normalize_task_item(today_items[index])["completed"]:
-                self._set_status_text("已完成事项只能删除或恢复为未完成")
-                return
-            self.today_list.editItem(item)
-            QTimer.singleShot(0, self._position_selected_delete_button)
-            QTimer.singleShot(0, self._bind_today_inline_editor)
-            self._set_status_text("已进入编辑（可输入 HH:MM 后空格修改 DDL）")
-
-    def _bind_today_inline_editor(self):
-        editor = self.today_list.findChild(QTextEdit)
-        if editor is not None:
-            self._position_today_inline_editor(editor)
-            return
-
-        editor = self.today_list.findChild(QLineEdit)
-        if editor is None:
-            return
-
-        try:
-            editor.returnPressed.disconnect(self._on_today_editor_return_pressed)
-        except TypeError:
-            pass
-        editor.returnPressed.connect(self._on_today_editor_return_pressed)
-        self._position_today_inline_editor(editor)
-
-    def _on_today_editor_return_pressed(self):
-        self._finish_today_inline_edit(save=True, clear_selection=True)
-
-    def _finish_today_inline_edit(self, save=True, clear_selection=True):
-        editor = self.today_list.findChild(QTextEdit)
-        if editor is None:
-            editor = self.today_list.findChild(QLineEdit)
-        if editor is not None:
-            delegate = self.today_list.itemDelegate()
-            if save:
-                delegate.commitData.emit(editor)
-            delegate.closeEditor.emit(editor, QAbstractItemDelegate.EndEditHint.NoHint)
-
-        self._clear_editing_state(clear_input=False, clear_selection=clear_selection)
-        self._set_status_text("已退出编辑模式")
-
-    def _on_today_item_changed(self, item):
-        if self._suppress_item_changed:
-            return
-
-        today_key = self._selected_date_key()
-        row = self.today_list.row(item)
-        index = self._visible_row_to_model_index(row)
-        today_items = self._ensure_date_items(today_key)
-        if index < 0 or index >= len(today_items):
-            return
-
-        old_task = self._normalize_task_item(today_items[index])
-        if old_task["completed"]:
-            self._suppress_item_changed = True
-            item.setText(self._display_task_text(old_task))
-            self._suppress_item_changed = False
-            self._set_status_text("已完成事项不能修改内容")
-            return
-        new_ddl, new_text, error_text = self._parse_editor_text(item.text(), old_task["ddl"])
-        if error_text:
-            self._suppress_item_changed = True
-            item.setText(self._display_task_text(old_task))
-            self._suppress_item_changed = False
-            self._set_status_text(error_text)
-            return
-
-        updated_task = {"ddl": new_ddl, "text": new_text, "completed": False}
-        if updated_task == old_task:
-            if item.text() != self._display_task_text(old_task):
-                self._suppress_item_changed = True
-                item.setText(self._display_task_text(old_task))
-                self._suppress_item_changed = False
-            return
-
-        previous_items = deepcopy(self.items_by_date)
-        today_items[index] = updated_task
-        today_items.sort(key=self._task_sort_key)
-        self.items_by_date[today_key] = today_items
-        for idx, task in enumerate(today_items):
-            if task == updated_task:
-                self._jump_to_today_index(idx)
-                break
-        if not self._persist_items():
-            self.items_by_date = previous_items
-            self._refresh_today_list()
-            self._refresh_calendar_marks()
-            self._refresh_month_list()
-            self._set_status_text("保存失败，修改未生效")
-            return
-        self._refresh_today_list()
-        self._refresh_calendar_marks()
-        self._refresh_month_list()
-        self._set_status_text("已保存修改")
-
-    def _on_today_editor_closed(self, *_):
-        self._editing_index = None
-        self._position_selected_delete_button()
+        if index >= 0:
+            self._open_task_editor(self._selected_date_key(), index)
 
     def _today_key(self):
         return date.today().isoformat()
@@ -1335,13 +1344,10 @@ class TodoPanel(QWidget):
         start = self._today_page_index * self._today_page_size
         end = min(total_items, start + self._today_page_size)
 
-        self._suppress_item_changed = True
         for model_index in range(start, end):
             task = self._normalize_task_item(today_items[model_index])
             item = QListWidgetItem(self._display_task_text(task))
             flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
-            if not task["completed"]:
-                flags |= Qt.ItemFlag.ItemIsEditable
             item.setFlags(flags)
             if task["completed"]:
                 completed_font = item.font()
@@ -1351,10 +1357,8 @@ class TodoPanel(QWidget):
                 item.setBackground(QBrush(QColor("#f0e8e5")))
             self.today_list.addItem(item)
             self._today_visible_indexes.append(model_index)
-        self._suppress_item_changed = False
 
         self._update_today_item_size_hints()
-        self._position_selected_delete_button()
 
     def _refresh_month_caption(self):
         year = self.calendar.yearShown()
@@ -1481,6 +1485,17 @@ class TodoPanel(QWidget):
         self._refresh_calendar_marks()
 
     def _on_calendar_selection_changed(self):
+        previous_editor_date = self._editing_date_key
+        if previous_editor_date is not None and not self._save_current_editor():
+            previous_qdate = QDate.fromString(previous_editor_date, "yyyy-MM-dd")
+            if previous_qdate.isValid():
+                self.calendar.blockSignals(True)
+                self.calendar.setSelectedDate(previous_qdate)
+                self.calendar.blockSignals(False)
+                self._refresh_calendar_marks()
+            self._set_status_text("修改尚未保存，请修正后再切换日期")
+            return
+
         selected = self.calendar.selectedDate()
         self._today_page_index = 0
         self._clear_editing_state(clear_input=True)
@@ -1522,6 +1537,9 @@ class TodoPanel(QWidget):
 
     def _close_from_symbol(self):
         self._stop_drag()
+        if self._editing_date_key is not None and not self._save_current_editor():
+            self._set_status_text("修改尚未保存，请修正后再关闭")
+            return
         if callable(self.on_close_callback):
             self.on_close_callback()
         self._allow_close = True
@@ -1532,17 +1550,6 @@ class TodoPanel(QWidget):
         if obj is self.today_list.viewport():
             if event.type() == QEvent.Type.Resize:
                 self._update_today_item_size_hints()
-                self._position_today_inline_editor()
-                self._position_selected_delete_button()
-
-            if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
-                pos = event.position().toPoint()
-                if self.today_list.itemAt(pos) is None:
-                    editor = self.today_list.findChild(QTextEdit)
-                    if editor is None:
-                        editor = self.today_list.findChild(QLineEdit)
-                    if editor is not None:
-                        self._finish_today_inline_edit(save=True, clear_selection=True)
 
         if obj in self._drag_handles:
             if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
@@ -1588,13 +1595,15 @@ class TodoPanel(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self.keep_inside_screen(reference_point=QCursor.pos())
-        QTimer.singleShot(0, self.todo_input.setFocus)
+        if self._editing_date_key is not None and not self.task_editor.isReadOnly():
+            QTimer.singleShot(0, self.task_editor.setFocus)
+        else:
+            QTimer.singleShot(0, self.todo_input.setFocus)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
-            editor = self.today_list.findChild(QLineEdit)
-            if editor is not None:
-                self._finish_today_inline_edit(save=True, clear_selection=True)
+            if self._editing_date_key is not None:
+                self._leave_task_editor(save=True)
             else:
                 self._close_from_symbol()
             event.accept()

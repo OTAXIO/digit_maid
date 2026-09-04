@@ -6,7 +6,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
     from PyQt6.QtCore import QDate, QTime, Qt
-    from PyQt6.QtWidgets import QApplication, QTextEdit
+    from PyQt6.QtWidgets import QApplication
 
     from src.ui.todo_panel import TodoPanel, WEEKEND_TEXT_COLOR
 except (ImportError, OSError) as exc:  # pragma: no cover - exercised by Qt-less CI only
@@ -86,9 +86,29 @@ class TodoPanelStyleTests(unittest.TestCase):
         self.assertFalse(completed_item.flags() & Qt.ItemFlag.ItemIsEditable)
 
         panel._on_today_item_selected(completed_item)
-        self.assertEqual(panel.complete_btn.text(), "↩")
+        self.assertIs(panel.daily_stack.currentWidget(), panel.task_editor_page)
+        self.assertTrue(panel.task_editor.isReadOnly())
+        self.assertEqual(panel.complete_btn.text(), "未完成")
         self.assertIn("未完成", panel.complete_btn.toolTip())
-        self.assertIsNone(panel.today_list.findChild(QTextEdit))
+        self.assertEqual(panel.edit_state_badge.text(), "已完成")
+        panel.deleteLater()
+
+    def test_clicking_active_item_uses_the_whole_daily_editor(self):
+        date_key = QDate.currentDate().toString("yyyy-MM-dd")
+        items = {
+            date_key: [{"ddl": "09:30", "text": "提交报告", "completed": False}]
+        }
+        with patch("src.ui.todo_panel.load_todo_items_by_date", return_value=items):
+            panel = TodoPanel()
+
+        panel._on_today_item_selected(panel.today_list.item(0))
+
+        self.assertIs(panel.daily_stack.currentWidget(), panel.task_editor_page)
+        self.assertTrue(panel.input_card.isHidden())
+        self.assertFalse(panel.task_editor.isReadOnly())
+        self.assertEqual(panel.task_editor.toPlainText(), "09:30 提交报告")
+        self.assertEqual(panel.delete_btn.text(), "删除")
+        self.assertEqual(panel.complete_btn.text(), "已完成")
         panel.deleteLater()
 
     def test_completion_toggle_keeps_task_and_changes_its_state(self):
@@ -140,16 +160,98 @@ class TodoPanelStyleTests(unittest.TestCase):
             panel = TodoPanel()
             panel._on_today_item_selected(panel.today_list.item(0))
             QApplication.processEvents()
-            editor = panel.today_list.findChild(QTextEdit)
-            self.assertIsNotNone(editor)
-            editor.setPlainText("10:15 新内容")
-            panel._toggle_selected_completion()
+            panel.task_editor.setPlainText("10:15 新内容")
+            panel.complete_btn.click()
 
         self.assertEqual(save.call_count, 1)
         self.assertEqual(
             panel.items_by_date[date_key],
             [{"ddl": "10:15", "text": "新内容", "completed": True}],
         )
+        self.assertTrue(panel.task_editor.isReadOnly())
+        self.assertEqual(panel.complete_btn.text(), "未完成")
+        self.assertEqual(panel.edit_state_badge.text(), "已完成")
+        self.assertIn("已标记为完成", panel.editor_hint.text())
+        self.assertEqual(panel.subtitle_label.text(), "已标记为完成")
+        panel.deleteLater()
+
+    def test_restoring_completed_item_unlocks_editor_with_feedback(self):
+        date_key = QDate.currentDate().toString("yyyy-MM-dd")
+        items = {
+            date_key: [{"ddl": "09:30", "text": "提交报告", "completed": True}]
+        }
+        with (
+            patch("src.ui.todo_panel.load_todo_items_by_date", return_value=items),
+            patch("src.ui.todo_panel.save_todo_items_by_date", return_value=True),
+        ):
+            panel = TodoPanel()
+            panel._on_today_item_selected(panel.today_list.item(0))
+            panel.complete_btn.click()
+
+        self.assertFalse(panel.items_by_date[date_key][0]["completed"])
+        self.assertFalse(panel.task_editor.isReadOnly())
+        self.assertEqual(panel.complete_btn.text(), "已完成")
+        self.assertEqual(panel.edit_state_badge.text(), "待完成")
+        self.assertIn("已恢复为未完成", panel.editor_hint.text())
+        panel.deleteLater()
+
+    def test_failed_completion_toggle_rolls_back_and_shows_feedback(self):
+        date_key = QDate.currentDate().toString("yyyy-MM-dd")
+        items = {
+            date_key: [{"ddl": "09:30", "text": "提交报告", "completed": False}]
+        }
+        with (
+            patch("src.ui.todo_panel.load_todo_items_by_date", return_value=items),
+            patch("src.ui.todo_panel.save_todo_items_by_date", return_value=False),
+        ):
+            panel = TodoPanel()
+            panel._on_today_item_selected(panel.today_list.item(0))
+            panel.complete_btn.click()
+
+        self.assertFalse(panel.items_by_date[date_key][0]["completed"])
+        self.assertFalse(panel.task_editor.isReadOnly())
+        self.assertEqual(panel.complete_btn.text(), "已完成")
+        self.assertIn("保存失败", panel.editor_hint.text())
+        panel.deleteLater()
+
+    def test_delete_button_removes_task_and_returns_to_list(self):
+        date_key = QDate.currentDate().toString("yyyy-MM-dd")
+        items = {
+            date_key: [{"ddl": "09:30", "text": "提交报告", "completed": False}]
+        }
+        with (
+            patch("src.ui.todo_panel.load_todo_items_by_date", return_value=items),
+            patch("src.ui.todo_panel.save_todo_items_by_date", return_value=True),
+        ):
+            panel = TodoPanel()
+            panel._on_today_item_selected(panel.today_list.item(0))
+            panel.delete_btn.click()
+
+        self.assertNotIn(date_key, panel.items_by_date)
+        self.assertIs(panel.daily_stack.currentWidget(), panel.task_list_page)
+        self.assertIn("已删除", panel.subtitle_label.text())
+        panel.deleteLater()
+
+    def test_back_button_saves_edit_and_returns_to_list(self):
+        date_key = QDate.currentDate().toString("yyyy-MM-dd")
+        items = {
+            date_key: [{"ddl": "09:30", "text": "旧内容", "completed": False}]
+        }
+        with (
+            patch("src.ui.todo_panel.load_todo_items_by_date", return_value=items),
+            patch("src.ui.todo_panel.save_todo_items_by_date", return_value=True) as save,
+        ):
+            panel = TodoPanel()
+            panel._on_today_item_selected(panel.today_list.item(0))
+            panel.task_editor.setPlainText("10:15 新内容")
+            panel.back_to_list_btn.click()
+
+        self.assertEqual(save.call_count, 1)
+        self.assertEqual(
+            panel.items_by_date[date_key],
+            [{"ddl": "10:15", "text": "新内容", "completed": False}],
+        )
+        self.assertIs(panel.daily_stack.currentWidget(), panel.task_list_page)
         panel.deleteLater()
 
 
