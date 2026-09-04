@@ -59,6 +59,8 @@ def find_due_todos(items_by_date, now: datetime, within_hours: float) -> list[Du
         for raw_task in raw_tasks:
             if not isinstance(raw_task, dict):
                 continue
+            if raw_task.get("completed") is True:
+                continue
             ddl = str(raw_task.get("ddl", "")).strip()
             text_value = str(raw_task.get("text", "")).strip()
             if not ddl or not text_value:

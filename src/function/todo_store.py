@@ -37,10 +37,12 @@ def _normalize_task_item(item):
     if isinstance(item, dict):
         text = str(item.get("text", "")).strip()
         ddl = _normalize_ddl_time(item.get("ddl", ""))
+        completed = item.get("completed") is True
     else:
         raw_text = str(item).strip().replace("：", ":")
         ddl = ""
         text = raw_text
+        completed = False
 
         segments = raw_text.split(None, 1)
         if segments and ":" in segments[0]:
@@ -52,19 +54,20 @@ def _normalize_task_item(item):
     if not text:
         return None
 
-    return {"ddl": ddl, "text": text}
+    return {"ddl": ddl, "text": text, "completed": completed}
 
 
 def _task_sort_key(task):
+    completion_rank = 1 if task.get("completed") is True else 0
     ddl = str(task.get("ddl", "")).strip()
     if ddl:
         try:
             hour_str, minute_str = ddl.split(":", 1)
             minute_of_day = int(hour_str) * 60 + int(minute_str)
-            return (0, minute_of_day, task.get("text", ""))
+            return (completion_rank, 0, minute_of_day, task.get("text", ""))
         except ValueError:
             pass
-    return (1, 24 * 60, task.get("text", ""))
+    return (completion_rank, 1, 24 * 60, task.get("text", ""))
 
 
 def _get_app_data_dir():
@@ -173,7 +176,13 @@ def load_todo_items_by_date():
 
 
 def complete_todo_item(date_key, ddl, text):
-    """Remove one exact active item after the user marks it completed."""
+    """Mark one exact active item completed without deleting its content."""
+
+    return set_todo_item_completed(date_key, ddl, text, completed=True)
+
+
+def set_todo_item_completed(date_key, ddl, text, *, completed):
+    """Update the completed state of one matching item and persist it."""
 
     items_by_date = load_todo_items_by_date()
     normalized_date = str(date_key).strip()
@@ -183,12 +192,20 @@ def complete_todo_item(date_key, ddl, text):
 
     tasks = list(items_by_date.get(normalized_date, []))
     for index, raw_task in enumerate(tasks):
-        if _normalize_task_item(raw_task) != normalized_target:
+        normalized_task = _normalize_task_item(raw_task)
+        if normalized_task is None:
             continue
-        tasks.pop(index)
-        if tasks:
-            items_by_date[normalized_date] = tasks
-        else:
-            items_by_date.pop(normalized_date, None)
+        if (
+            normalized_task["ddl"] != normalized_target["ddl"]
+            or normalized_task["text"] != normalized_target["text"]
+            or normalized_task["completed"] is bool(completed)
+        ):
+            continue
+        tasks[index] = {
+            "ddl": normalized_task["ddl"],
+            "text": normalized_task["text"],
+            "completed": bool(completed),
+        }
+        items_by_date[normalized_date] = tasks
         return save_todo_items_by_date(items_by_date)
     return False

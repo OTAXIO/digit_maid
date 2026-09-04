@@ -12,6 +12,7 @@ class TodoReminderTests(unittest.TestCase):
             "2026-09-04": [
                 {"ddl": "09:50", "text": "已超时"},
                 {"ddl": "10:45", "text": "即将到期"},
+                {"ddl": "10:15", "text": "已经完成", "completed": True},
                 {"ddl": "12:01", "text": "窗口外"},
                 {"ddl": "bad", "text": "无效时间"},
             ],

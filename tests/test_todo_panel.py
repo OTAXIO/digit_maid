@@ -5,8 +5,8 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 try:
-    from PyQt6.QtCore import QDate, Qt
-    from PyQt6.QtWidgets import QApplication
+    from PyQt6.QtCore import QDate, QTime, Qt
+    from PyQt6.QtWidgets import QApplication, QTextEdit
 
     from src.ui.todo_panel import TodoPanel, WEEKEND_TEXT_COLOR
 except (ImportError, OSError) as exc:  # pragma: no cover - exercised by Qt-less CI only
@@ -57,6 +57,59 @@ class TodoPanelStyleTests(unittest.TestCase):
             .name(),
             expected,
         )
+        panel.deleteLater()
+
+    def test_default_ddl_uses_current_time(self):
+        expected_before = QTime.currentTime().toString("HH:mm")
+        with patch("src.ui.todo_panel.load_todo_items_by_date", return_value={}):
+            panel = TodoPanel()
+        expected_after = QTime.currentTime().toString("HH:mm")
+
+        self.assertIn(panel.ddl_input.text(), {expected_before, expected_after})
+        panel.deleteLater()
+
+    def test_completed_item_is_styled_and_not_editable(self):
+        items = {
+            QDate.currentDate().toString("yyyy-MM-dd"): [
+                {
+                    "ddl": "09:30",
+                    "text": "已整理报告",
+                    "completed": True,
+                }
+            ]
+        }
+        with patch("src.ui.todo_panel.load_todo_items_by_date", return_value=items):
+            panel = TodoPanel()
+
+        completed_item = panel.today_list.item(0)
+        self.assertTrue(completed_item.font().strikeOut())
+        self.assertFalse(completed_item.flags() & Qt.ItemFlag.ItemIsEditable)
+
+        panel._on_today_item_selected(completed_item)
+        self.assertEqual(panel.complete_btn.text(), "↩")
+        self.assertIn("未完成", panel.complete_btn.toolTip())
+        self.assertIsNone(panel.today_list.findChild(QTextEdit))
+        panel.deleteLater()
+
+    def test_completion_toggle_keeps_task_and_changes_its_state(self):
+        date_key = QDate.currentDate().toString("yyyy-MM-dd")
+        items = {
+            date_key: [
+                {"ddl": "09:30", "text": "提交报告", "completed": False}
+            ]
+        }
+        with (
+            patch("src.ui.todo_panel.load_todo_items_by_date", return_value=items),
+            patch("src.ui.todo_panel.save_todo_items_by_date", return_value=True),
+        ):
+            panel = TodoPanel()
+            panel._editing_index = 0
+            panel._last_editing_index = 0
+            panel._toggle_selected_completion()
+
+        tasks = panel.items_by_date[date_key]
+        self.assertEqual(len(tasks), 1)
+        self.assertTrue(tasks[0]["completed"])
         panel.deleteLater()
 
 
