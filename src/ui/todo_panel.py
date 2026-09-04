@@ -29,6 +29,9 @@ from src.core.paths import runtime_root
 from src.function.todo_store import load_todo_items_by_date, save_todo_items_by_date
 
 
+WEEKEND_TEXT_COLOR = "#8b0000"
+
+
 def _default_ui_font_family():
     if sys.platform == "darwin":
         return "PingFang SC"
@@ -494,6 +497,10 @@ class TodoPanel(QWidget):
         self.calendar.setHorizontalHeaderFormat(
             QCalendarWidget.HorizontalHeaderFormat.ShortDayNames
         )
+        weekend_format = QTextCharFormat()
+        weekend_format.setForeground(QColor(WEEKEND_TEXT_COLOR))
+        self.calendar.setWeekdayTextFormat(Qt.DayOfWeek.Saturday, weekend_format)
+        self.calendar.setWeekdayTextFormat(Qt.DayOfWeek.Sunday, weekend_format)
         self.calendar.currentPageChanged.connect(self._on_calendar_page_changed)
         self.calendar.selectionChanged.connect(self._on_calendar_selection_changed)
         right_layout.addWidget(self.calendar)
@@ -1204,7 +1211,10 @@ class TodoPanel(QWidget):
             qdate = grid_start.addDays(idx)
             if qdate.year() == shown_year and qdate.month() == shown_month:
                 continue
-            self.calendar.setDateTextFormat(qdate, out_month_format)
+            date_format = QTextCharFormat(out_month_format)
+            if qdate.dayOfWeek() in (6, 7):
+                date_format.setForeground(QColor(WEEKEND_TEXT_COLOR))
+            self.calendar.setDateTextFormat(qdate, date_format)
             self._marked_dates.append(qdate)
 
         month_light_format = QTextCharFormat()
@@ -1213,7 +1223,10 @@ class TodoPanel(QWidget):
 
         for day in range(1, day_count + 1):
             qdate = QDate(shown_year, shown_month, day)
-            self.calendar.setDateTextFormat(qdate, month_light_format)
+            date_format = QTextCharFormat(month_light_format)
+            if qdate.dayOfWeek() in (6, 7):
+                date_format.setForeground(QColor(WEEKEND_TEXT_COLOR))
+            self.calendar.setDateTextFormat(qdate, date_format)
             self._marked_dates.append(qdate)
 
         task_format = QTextCharFormat()
@@ -1232,14 +1245,19 @@ class TodoPanel(QWidget):
                 continue
 
             qdate = QDate(parsed.year, parsed.month, parsed.day)
-            self.calendar.setDateTextFormat(qdate, task_format)
+            date_format = QTextCharFormat(task_format)
+            if qdate.dayOfWeek() in (6, 7):
+                date_format.setForeground(QColor(WEEKEND_TEXT_COLOR))
+            self.calendar.setDateTextFormat(qdate, date_format)
             self._marked_dates.append(qdate)
 
         today = QDate.currentDate()
         if today.year() == shown_year and today.month() == shown_month:
             today_format = QTextCharFormat()
             today_format.setBackground(QColor("#e8b4ac"))
-            today_format.setForeground(QColor("#5c2629"))
+            today_format.setForeground(
+                QColor(WEEKEND_TEXT_COLOR if today.dayOfWeek() in (6, 7) else "#5c2629")
+            )
             self.calendar.setDateTextFormat(today, today_format)
             self._marked_dates.append(today)
 
