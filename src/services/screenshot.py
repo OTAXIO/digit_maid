@@ -23,6 +23,8 @@ def capture_screen_content(save_dir: Optional[str] = None) -> str:
     try:
         target_dir = Path(save_dir).expanduser() if save_dir else _default_screenshot_dir()
         target_dir.mkdir(parents=True, exist_ok=True)
+        if not target_dir.is_dir():
+            return f"截图失败: 保存位置不是目录 {target_dir}"
 
         app = QApplication.instance()
         if app is None:
@@ -34,8 +36,10 @@ def capture_screen_content(save_dir: Optional[str] = None) -> str:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         destination = target_dir / f"screenshot_{timestamp}.png"
         pixmap = screen.grabWindow(0)
+        if pixmap.isNull():
+            return "截图失败: 屏幕捕获结果为空"
         if not pixmap.save(str(destination), "PNG"):
             return f"截图失败: 无法写入 {destination}"
         return f"屏幕已截图，保存为: {destination}"
-    except (OSError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         return f"截图失败: {exc}"

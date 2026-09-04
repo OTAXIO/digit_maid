@@ -112,6 +112,46 @@ class TodoPanelStyleTests(unittest.TestCase):
         self.assertTrue(tasks[0]["completed"])
         panel.deleteLater()
 
+    def test_failed_add_is_rolled_back_and_input_is_preserved(self):
+        date_key = QDate.currentDate().toString("yyyy-MM-dd")
+        with (
+            patch("src.ui.todo_panel.load_todo_items_by_date", return_value={}),
+            patch("src.ui.todo_panel.save_todo_items_by_date", return_value=False),
+        ):
+            panel = TodoPanel()
+            panel.ddl_input.setText("09:30")
+            panel.todo_input.setText("不能丢失的输入")
+            panel._submit_todo_input()
+
+        self.assertNotIn(date_key, panel.items_by_date)
+        self.assertEqual(panel.todo_input.text(), "不能丢失的输入")
+        self.assertIn("保存失败", panel.subtitle_label.text())
+        panel.deleteLater()
+
+    def test_complete_while_editing_is_saved_atomically(self):
+        date_key = QDate.currentDate().toString("yyyy-MM-dd")
+        items = {
+            date_key: [{"ddl": "09:30", "text": "旧内容", "completed": False}]
+        }
+        with (
+            patch("src.ui.todo_panel.load_todo_items_by_date", return_value=items),
+            patch("src.ui.todo_panel.save_todo_items_by_date", return_value=True) as save,
+        ):
+            panel = TodoPanel()
+            panel._on_today_item_selected(panel.today_list.item(0))
+            QApplication.processEvents()
+            editor = panel.today_list.findChild(QTextEdit)
+            self.assertIsNotNone(editor)
+            editor.setPlainText("10:15 新内容")
+            panel._toggle_selected_completion()
+
+        self.assertEqual(save.call_count, 1)
+        self.assertEqual(
+            panel.items_by_date[date_key],
+            [{"ddl": "10:15", "text": "新内容", "completed": True}],
+        )
+        panel.deleteLater()
+
 
 if __name__ == "__main__":
     unittest.main()

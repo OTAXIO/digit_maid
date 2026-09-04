@@ -1,4 +1,5 @@
 from datetime import date
+from copy import deepcopy
 import os
 import sys
 
@@ -26,10 +27,18 @@ from PyQt6.QtWidgets import (
 )
 
 from src.core.paths import runtime_root
-from src.function.todo_store import load_todo_items_by_date, save_todo_items_by_date
+from src.function.todo_store import (
+    MAX_TODO_DATES,
+    MAX_TODO_TEXT_CHARS,
+    MAX_TODOS_PER_DATE,
+    MAX_TOTAL_TODOS,
+    load_todo_items_by_date,
+    save_todo_items_by_date,
+)
 
 
 WEEKEND_TEXT_COLOR = "#8b0000"
+MAX_TODO_EDITOR_CHARS = MAX_TODO_TEXT_CHARS + 16
 
 
 def _default_ui_font_family():
@@ -60,7 +69,20 @@ class _TodoItemEditDelegate(QStyledItemDelegate):
             "selection-color: #2d2220;"
             "}"
         )
+        editor.textChanged.connect(lambda: self._limit_editor_text(editor))
         return editor
+
+    @staticmethod
+    def _limit_editor_text(editor):
+        text = editor.toPlainText()
+        if len(text) <= MAX_TODO_EDITOR_CHARS:
+            return
+        editor.blockSignals(True)
+        editor.setPlainText(text[:MAX_TODO_EDITOR_CHARS])
+        cursor = editor.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        editor.setTextCursor(cursor)
+        editor.blockSignals(False)
 
     def setEditorData(self, editor, index):
         editor.setPlainText(str(index.data(Qt.ItemDataRole.EditRole) or ""))
@@ -497,12 +519,14 @@ class TodoPanel(QWidget):
         self.ddl_input.setPlaceholderText("DDL HH:MM")
         self.ddl_input.setText(self._default_ddl_text())
         self.ddl_input.returnPressed.connect(self._submit_todo_input)
+        self.ddl_input.setMaxLength(5)
         input_action_row.addWidget(self.ddl_input)
 
         self.todo_input = QLineEdit(left_section)
         self.todo_input.setObjectName("todo_input")
         self.todo_input.setPlaceholderText("输入当日待办")
         self.todo_input.returnPressed.connect(self._submit_todo_input)
+        self.todo_input.setMaxLength(MAX_TODO_TEXT_CHARS)
         input_action_row.addWidget(self.todo_input, 1)
 
         self.upload_btn = QPushButton("", left_section)
@@ -860,10 +884,18 @@ class TodoPanel(QWidget):
         if isinstance(task, dict):
             ddl = self._normalize_ddl_text(task.get("ddl", ""))
             text = str(task.get("text", "")).strip()
+            if len(text) > MAX_TODO_TEXT_CHARS or any(
+                ord(character) < 32 for character in text
+            ):
+                text = ""
             completed = task.get("completed") is True
             return {"ddl": ddl, "text": text, "completed": completed}
 
         ddl, text = self._split_prefixed_ddl(task)
+        if len(text) > MAX_TODO_TEXT_CHARS or any(
+            ord(character) < 32 for character in text
+        ):
+            text = ""
         return {"ddl": ddl, "text": text, "completed": False}
 
     def _task_sort_key(self, task):
@@ -986,9 +1018,13 @@ class TodoPanel(QWidget):
             content = segments[1].strip() if len(segments) > 1 else ""
             if not content:
                 return "", "", "待办内容不能为空"
+            if len(content) > MAX_TODO_TEXT_CHARS:
+                return "", "", f"待办内容不能超过 {MAX_TODO_TEXT_CHARS} 个字符"
 
             return normalized_ddl, content, ""
 
+        if len(normalized_text) > MAX_TODO_TEXT_CHARS:
+            return "", "", f"待办内容不能超过 {MAX_TODO_TEXT_CHARS} 个字符"
         return fallback_ddl, normalized_text, ""
 
     def _sync_daily_section_caption(self):
@@ -1011,6 +1047,20 @@ class TodoPanel(QWidget):
             return
 
         today_key = self._selected_date_key()
+        existing_items = self.items_by_date.get(today_key, [])
+        if isinstance(existing_items, list) and len(existing_items) >= MAX_TODOS_PER_DATE:
+            self._set_status_text(f"单日最多添加 {MAX_TODOS_PER_DATE} 项待办")
+            return
+        if sum(
+            len(items) for items in self.items_by_date.values() if isinstance(items, list)
+        ) >= MAX_TOTAL_TODOS:
+            self._set_status_text(f"待办总数不能超过 {MAX_TOTAL_TODOS} 项")
+            return
+        if today_key not in self.items_by_date and len(self.items_by_date) >= MAX_TODO_DATES:
+            self._set_status_text(f"待办日期不能超过 {MAX_TODO_DATES} 个")
+            return
+
+        previous_items = deepcopy(self.items_by_date)
         today_items = self.items_by_date.setdefault(today_key, [])
         today_items.append({"ddl": ddl_text, "text": text, "completed": False})
         normalized_today_items = self._ensure_date_items(today_key)
@@ -1020,9 +1070,18 @@ class TodoPanel(QWidget):
                 break
         status_text = "已新增事项"
 
+        if not self._persist_items():
+            self.items_by_date = previous_items
+            self._refresh_today_list()
+            self._refresh_calendar_marks()
+            self._refresh_month_list()
+            self.ddl_input.setText(ddl_text)
+            self.todo_input.setText(text)
+            self._set_status_text("保存失败，待办未新增，请检查数据目录权限")
+            return
+
         self.todo_input.clear()
         self.ddl_input.setText(self._default_ddl_text())
-        self._persist_items()
         self._refresh_today_list()
         self._refresh_calendar_marks()
         self._refresh_month_list()
@@ -1058,8 +1117,8 @@ class TodoPanel(QWidget):
             return
 
         original_task = self._normalize_task_item(today_items[index])
-        target_ddl = original_task["ddl"]
-        target_text = original_task["text"]
+        previous_items = deepcopy(self.items_by_date)
+        task = dict(original_task)
         editor = self.today_list.findChild(QTextEdit)
         if editor is None:
             editor = self.today_list.findChild(QLineEdit)
@@ -1071,29 +1130,26 @@ class TodoPanel(QWidget):
             if error_text:
                 self._set_status_text(error_text)
                 return
-            target_ddl, target_text = parsed_ddl, parsed_text
-            self._finish_today_inline_edit(save=True, clear_selection=False)
+            task["ddl"] = parsed_ddl
+            task["text"] = parsed_text
+            self._finish_today_inline_edit(save=False, clear_selection=False)
             today_items = self._ensure_date_items(today_key)
-            index = next(
-                (
-                    task_index
-                    for task_index, task in enumerate(today_items)
-                    if task.get("ddl") == target_ddl
-                    and task.get("text") == target_text
-                    and task.get("completed") is False
-                ),
-                -1,
-            )
-            if index < 0:
+            if index >= len(today_items):
                 self._set_status_text("未能定位当前事项，请重新选择")
                 return
 
-        task = self._normalize_task_item(today_items[index])
         task["completed"] = not task["completed"]
         today_items[index] = task
         today_items.sort(key=self._task_sort_key)
         self.items_by_date[today_key] = today_items
-        self._persist_items()
+        if not self._persist_items():
+            self.items_by_date = previous_items
+            self._refresh_today_list()
+            self._refresh_calendar_marks()
+            self._refresh_month_list()
+            self._clear_editing_state(clear_input=False)
+            self._set_status_text("保存失败，完成状态未改变")
+            return
         self._refresh_today_list()
         self._refresh_calendar_marks()
         self._refresh_month_list()
@@ -1112,6 +1168,7 @@ class TodoPanel(QWidget):
             self._set_status_text("请先点击一条事项后再删除")
             return
 
+        previous_items = deepcopy(self.items_by_date)
         today_items.pop(index)
         if not today_items:
             self.items_by_date.pop(today_key, None)
@@ -1119,8 +1176,15 @@ class TodoPanel(QWidget):
             self.items_by_date[today_key] = sorted(today_items, key=self._task_sort_key)
         self._last_editing_index = None
 
+        if not self._persist_items():
+            self.items_by_date = previous_items
+            self._refresh_today_list()
+            self._refresh_calendar_marks()
+            self._refresh_month_list()
+            self._set_status_text("保存失败，事项未删除")
+            return
+
         self.todo_input.clear()
-        self._persist_items()
         self._refresh_today_list()
         self._refresh_calendar_marks()
         self._refresh_month_list()
@@ -1212,6 +1276,7 @@ class TodoPanel(QWidget):
                 self._suppress_item_changed = False
             return
 
+        previous_items = deepcopy(self.items_by_date)
         today_items[index] = updated_task
         today_items.sort(key=self._task_sort_key)
         self.items_by_date[today_key] = today_items
@@ -1219,7 +1284,13 @@ class TodoPanel(QWidget):
             if task == updated_task:
                 self._jump_to_today_index(idx)
                 break
-        self._persist_items()
+        if not self._persist_items():
+            self.items_by_date = previous_items
+            self._refresh_today_list()
+            self._refresh_calendar_marks()
+            self._refresh_month_list()
+            self._set_status_text("保存失败，修改未生效")
+            return
         self._refresh_today_list()
         self._refresh_calendar_marks()
         self._refresh_month_list()

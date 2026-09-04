@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+import math
 from typing import Callable, Optional
 
 from PyQt6.QtCore import QObject, Qt, QTimer
@@ -22,7 +23,15 @@ from PyQt6.QtWidgets import (
 
 from src.config import ConfigError, load_todo_reminder_config
 from src.config.loader import DEFAULT_TODO_REMINDER_CONFIG
-from src.function.todo_store import complete_todo_item, load_todo_items_by_date
+from src.function.todo_store import (
+    MAX_TODO_TEXT_CHARS,
+    complete_todo_item,
+    load_todo_items_by_date,
+)
+
+
+MAX_REMINDER_WINDOW_HOURS = 24.0 * 30
+MAX_SNOOZE_MINUTES = 24 * 60
 
 
 @dataclass(frozen=True)
@@ -41,11 +50,22 @@ def find_due_todos(items_by_date, now: datetime, within_hours: float) -> list[Du
     the pet out of edge-hiding mode.
     """
 
-    if not isinstance(items_by_date, dict):
+    if not isinstance(items_by_date, dict) or not isinstance(now, datetime):
         return []
 
-    window_start = datetime.combine(now.date(), time.min)
-    window_end = now + timedelta(hours=max(0.0, float(within_hours)))
+    try:
+        reminder_hours = float(within_hours)
+    except (TypeError, ValueError, OverflowError):
+        return []
+    if not math.isfinite(reminder_hours):
+        return []
+    reminder_hours = max(0.0, min(reminder_hours, MAX_REMINDER_WINDOW_HOURS))
+
+    window_start = datetime.combine(now.date(), time.min).replace(tzinfo=now.tzinfo)
+    try:
+        window_end = now + timedelta(hours=reminder_hours)
+    except OverflowError:
+        window_end = datetime.max.replace(tzinfo=now.tzinfo)
     matches: list[DueTodo] = []
 
     for raw_date, raw_tasks in items_by_date.items():
@@ -63,14 +83,22 @@ def find_due_todos(items_by_date, now: datetime, within_hours: float) -> list[Du
                 continue
             ddl = str(raw_task.get("ddl", "")).strip()
             text_value = str(raw_task.get("text", "")).strip()
-            if not ddl or not text_value:
+            if (
+                len(ddl) != 5
+                or ddl[2] != ":"
+                or not ddl[:2].isdigit()
+                or not ddl[3:].isdigit()
+                or not text_value
+                or len(text_value) > MAX_TODO_TEXT_CHARS
+                or any(ord(character) < 32 for character in text_value)
+            ):
                 continue
             try:
-                parsed_time = time.fromisoformat(ddl)
-            except ValueError:
+                parsed_time = time(int(ddl[:2]), int(ddl[3:]))
+            except (ValueError, OverflowError):
                 continue
 
-            deadline = datetime.combine(parsed_date, parsed_time)
+            deadline = datetime.combine(parsed_date, parsed_time).replace(tzinfo=now.tzinfo)
             if window_start <= deadline <= window_end:
                 matches.append(
                     DueTodo(
@@ -110,7 +138,16 @@ class TodoReminderDialog(QWidget):
         self._todos: list[DueTodo] = []
         self._on_complete = on_complete
         self._on_snooze = on_snooze
-        self._snooze_minutes = int(snooze_minutes)
+        try:
+            normalized_snooze = float(snooze_minutes)
+        except (TypeError, ValueError, OverflowError):
+            normalized_snooze = float(DEFAULT_TODO_REMINDER_CONFIG["snooze_minutes"])
+        if not math.isfinite(normalized_snooze):
+            normalized_snooze = float(DEFAULT_TODO_REMINDER_CONFIG["snooze_minutes"])
+        self._snooze_minutes = max(
+            1,
+            min(int(normalized_snooze), MAX_SNOOZE_MINUTES),
+        )
         self.setWindowTitle("Digit Maid · 待办提醒")
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -264,8 +301,9 @@ class TodoReminderDialog(QWidget):
         root_layout.addWidget(self.card)
 
     def set_todos(self, todos: list[DueTodo], now: Optional[datetime] = None):
-        self._todos = list(todos)
-        current_time = now or datetime.now()
+        source_todos = todos if isinstance(todos, (list, tuple)) else ()
+        self._todos = [todo for todo in source_todos if isinstance(todo, DueTodo)]
+        current_time = now if isinstance(now, datetime) else datetime.now()
         count = len(self._todos)
         self.resize(500, min(620, 250 + max(1, min(count, 4)) * 84))
         self.subtitle.setText(
@@ -363,7 +401,7 @@ class TodoReminderManager(QObject):
         QTimer.singleShot(0, self.check_now)
 
     def check_now(self, now: Optional[datetime] = None):
-        current_time = now or datetime.now()
+        current_time = now if isinstance(now, datetime) else datetime.now()
         items_by_date = load_todo_items_by_date()
 
         guard_todos = find_due_todos(
@@ -381,7 +419,9 @@ class TodoReminderManager(QObject):
         if self._dialog is not None and self._dialog.isVisible():
             if reminder_todos:
                 self._dialog.set_todos(reminder_todos, now=current_time)
-            return
+                return
+            self._close_dialog()
+            self._next_regular_at = None
 
         if not reminder_todos:
             self._next_regular_at = None
@@ -417,6 +457,13 @@ class TodoReminderManager(QObject):
             panel = getattr(actions, "todo_panel", None) if actions is not None else None
             if panel is not None and panel.isVisible():
                 panel.reload_data()
+        else:
+            if self._dialog is not None:
+                self._dialog.subtitle.setText(
+                    "未能保存完成状态，请检查数据目录权限后重试。"
+                )
+                self._dialog.raise_()
+            return
 
         now = datetime.now()
         remaining = find_due_todos(

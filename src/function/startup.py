@@ -2,6 +2,7 @@ import os
 import plistlib
 import subprocess
 import sys
+import tempfile
 
 from src.core.paths import runtime_root, runtime_path
 
@@ -14,6 +15,8 @@ RUN_KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
 APP_NAME = "DigitMaid"
 MAC_LABEL = "com.digitmaid.app"
 LINUX_DESKTOP_FILE = "digitmaid.desktop"
+MAX_STARTUP_FILE_BYTES = 64 * 1024
+STARTUP_COMMAND_TIMEOUT_SECONDS = 10
 
 
 def _is_windows():
@@ -52,20 +55,65 @@ def _build_startup_program_args():
 
 def _build_startup_command():
     """Build command written to Windows Run key."""
-    args = _build_startup_program_args()
-    return " ".join([f'"{arg}"' for arg in args])
+    return subprocess.list2cmdline(_build_startup_program_args())
 
 
 def _desktop_exec_quote(arg):
     arg = str(arg)
-    if not arg or any(ch.isspace() or ch in '\\"`$' for ch in arg):
-        escaped = arg.replace("\\", "\\\\").replace('"', '\\"')
+    if not arg or any(ord(character) < 32 or ord(character) == 127 for character in arg):
+        raise ValueError("启动命令路径包含非法控制字符")
+    arg = arg.replace("%", "%%")
+    if any(ch.isspace() or ch in '\\"`$' for ch in arg):
+        escaped = (
+            arg.replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("`", "\\`")
+            .replace("$", "\\$")
+        )
         return f'"{escaped}"'
     return arg
 
 
 def _build_linux_exec_command():
     return " ".join(_desktop_exec_quote(arg) for arg in _build_startup_program_args())
+
+
+def _read_startup_file(path, *, binary=False):
+    with open(path, "rb") as handle:
+        payload = handle.read(MAX_STARTUP_FILE_BYTES + 1)
+    if len(payload) > MAX_STARTUP_FILE_BYTES:
+        raise ValueError("自启动配置文件过大")
+    return payload if binary else payload.decode("utf-8")
+
+
+def _atomic_write_startup_file(path, payload):
+    destination_dir = os.path.dirname(path)
+    os.makedirs(destination_dir, exist_ok=True)
+    data = payload if isinstance(payload, bytes) else str(payload).encode("utf-8")
+    if len(data) > MAX_STARTUP_FILE_BYTES:
+        raise ValueError("自启动配置文件过大")
+
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb",
+            dir=destination_dir,
+            prefix=f".{os.path.basename(path)}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = handle.name
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                os.remove(temporary_path)
+            except OSError:
+                pass
 
 
 def is_startup_enabled():
@@ -86,8 +134,7 @@ def is_startup_enabled():
             return False
 
         try:
-            with open(plist_path, "rb") as f:
-                data = plistlib.load(f)
+            data = plistlib.loads(_read_startup_file(plist_path, binary=True))
             args = data.get("ProgramArguments", [])
             return bool(data.get("Label") == MAC_LABEL and args == _build_startup_program_args())
         except Exception:
@@ -99,12 +146,12 @@ def is_startup_enabled():
             return False
 
         try:
-            with open(desktop_path, "r", encoding="utf-8") as f:
-                content = f.read()
+            content = _read_startup_file(desktop_path)
+            lines = {line.strip() for line in content.splitlines()}
             return (
-                "Name=DigitMaid" in content
-                and f"Exec={_build_linux_exec_command()}" in content
-                and "X-GNOME-Autostart-enabled=true" in content
+                "Name=DigitMaid" in lines
+                and f"Exec={_build_linux_exec_command()}" in lines
+                and "X-GNOME-Autostart-enabled=true" in lines
             )
         except Exception:
             return False
@@ -134,7 +181,6 @@ def set_startup_enabled(enabled):
         plist_path = _mac_launch_agent_path()
         args = _build_startup_program_args()
         try:
-            os.makedirs(os.path.dirname(plist_path), exist_ok=True)
             if enabled:
                 plist_data = {
                     "Label": MAC_LABEL,
@@ -143,24 +189,37 @@ def set_startup_enabled(enabled):
                     "KeepAlive": False,
                     "WorkingDirectory": _project_root(),
                 }
-                with open(plist_path, "wb") as f:
-                    plistlib.dump(plist_data, f)
+                _atomic_write_startup_file(plist_path, plistlib.dumps(plist_data))
 
-                subprocess.run(["launchctl", "unload", plist_path], check=False, capture_output=True)
-                subprocess.run(["launchctl", "load", plist_path], check=False, capture_output=True)
+                subprocess.run(
+                    ["launchctl", "unload", plist_path],
+                    check=False,
+                    capture_output=True,
+                    timeout=STARTUP_COMMAND_TIMEOUT_SECONDS,
+                )
+                subprocess.run(
+                    ["launchctl", "load", plist_path],
+                    check=True,
+                    capture_output=True,
+                    timeout=STARTUP_COMMAND_TIMEOUT_SECONDS,
+                )
                 return True, "已开启开机自启动（macOS）"
 
-            subprocess.run(["launchctl", "unload", plist_path], check=False, capture_output=True)
+            subprocess.run(
+                ["launchctl", "unload", plist_path],
+                check=False,
+                capture_output=True,
+                timeout=STARTUP_COMMAND_TIMEOUT_SECONDS,
+            )
             if os.path.exists(plist_path):
                 os.remove(plist_path)
             return True, "已关闭开机自启动（macOS）"
-        except OSError as e:
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
             return False, f"设置开机自启动失败: {e}"
 
     if _is_linux():
         desktop_path = _linux_autostart_path()
         try:
-            os.makedirs(os.path.dirname(desktop_path), exist_ok=True)
             if enabled:
                 desktop_content = "\n".join(
                     [
@@ -174,14 +233,13 @@ def set_startup_enabled(enabled):
                         "",
                     ]
                 )
-                with open(desktop_path, "w", encoding="utf-8") as f:
-                    f.write(desktop_content)
+                _atomic_write_startup_file(desktop_path, desktop_content)
                 return True, "已开启开机自启动（Linux）"
 
             if os.path.exists(desktop_path):
                 os.remove(desktop_path)
             return True, "已关闭开机自启动（Linux）"
-        except OSError as e:
+        except (OSError, ValueError) as e:
             return False, f"设置开机自启动失败: {e}"
 
     return False, "当前系统不支持开机自启动设置"

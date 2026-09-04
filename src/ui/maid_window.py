@@ -9,6 +9,7 @@ from PyQt6.QtGui import QMovie, QTransform
 import sys
 
 from src.config import ConfigError, load_animation_config
+from src.core.numeric import bounded_float, bounded_int
 from src.core.paths import runtime_root
 from src.ui.dialogue import DialogueSystem
 from src.ui.action import MaidActions
@@ -430,7 +431,10 @@ class MaidWindow(QWidget):
 
         # 新增：允许在 yaml 里用逗号分隔配置多个动作，并在播放时随机抽取其中一个
         if isinstance(gif_file, str) and "," in gif_file:
-            gif_file = random.choice([f.strip() for f in gif_file.split(",")])
+            candidates = [f.strip() for f in gif_file.split(",") if f.strip()]
+            if not candidates:
+                return False
+            gif_file = random.choice(candidates)
 
         gif_path = os.path.join(self.root_dir, base_dir_rel, gif_file)
         if not os.path.exists(gif_path):
@@ -525,7 +529,12 @@ class MaidWindow(QWidget):
         self.move(new_x, new_y)
 
     def _clamp_user_scale(self, value):
-        return max(self.min_user_scale, min(self.max_user_scale, value))
+        return bounded_float(
+            value,
+            default=1.0,
+            minimum=self.min_user_scale,
+            maximum=self.max_user_scale,
+        )
 
     def _load_persisted_user_scale(self):
         settings = QSettings("DigitMaid", "DigitMaid")
@@ -601,7 +610,8 @@ class MaidWindow(QWidget):
         if delta == 0:
             return False
 
-        step_count = int(delta / 120)
+        delta = bounded_int(delta, default=0, minimum=-12000, maximum=12000)
+        step_count = delta // 120 if delta >= 0 else -((-delta) // 120)
         if step_count == 0:
             step_count = 1 if delta > 0 else -1
 
@@ -826,8 +836,10 @@ class MaidWindow(QWidget):
     def set_maid_scale_factor(self, value):
         try:
             target_scale = float(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return False, "请输入 0.2 到 5.0 之间的数字"
+        if not math.isfinite(target_scale):
+            return False, "请输入有限的缩放数字"
 
         self.user_scale = self._clamp_user_scale(target_scale)
         if self._apply_user_scale_to_current_movie():
@@ -1021,6 +1033,12 @@ class MaidWindow(QWidget):
             self.inactivity_timer.stop()
             return
 
+        duration_ms = bounded_int(
+            duration_ms,
+            default=15000,
+            minimum=1,
+            maximum=2_147_483_647,
+        )
         self._inactivity_deadline = time.monotonic() + (duration_ms / 1000.0)
         self.inactivity_timer.start(duration_ms)
 

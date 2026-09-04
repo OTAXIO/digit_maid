@@ -74,6 +74,39 @@ class TodoStoreTests(unittest.TestCase):
                 restored = todo_store.load_todo_items_by_date()
             self.assertTrue(all(not task["completed"] for task in restored["2026-09-04"]))
 
+    def test_invalid_save_does_not_replace_existing_data(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "todo.json")
+            with patch.object(todo_store, "get_todo_data_path", return_value=str(path)):
+                self.assertTrue(
+                    todo_store.save_todo_items_by_date(
+                        {"2026-09-04": [{"ddl": "09:30", "text": "原事项"}]}
+                    )
+                )
+                self.assertFalse(
+                    todo_store.save_todo_items_by_date(
+                        {
+                            "2026-09-04": [
+                                {
+                                    "ddl": "09:30",
+                                    "text": "x" * (todo_store.MAX_TODO_TEXT_CHARS + 1),
+                                }
+                            ]
+                        }
+                    )
+                )
+                loaded = todo_store.load_todo_items_by_date()
+
+            self.assertEqual(loaded["2026-09-04"][0]["text"], "原事项")
+
+    def test_completion_rejects_invalid_date(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "todo.json")
+            with patch.object(todo_store, "get_todo_data_path", return_value=str(path)):
+                self.assertFalse(
+                    todo_store.complete_todo_item("not-a-date", "09:30", "事项")
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

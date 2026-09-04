@@ -5,7 +5,12 @@ from PyQt6.QtCore import Qt, QPropertyAnimation, QRect, QEasingCurve, QPoint, QT
 from PyQt6.QtGui import QPainter, QColor, QPen, QPainterPath, QFontMetrics
 
 from src.core.paths import runtime_root
+from src.core.numeric import bounded_float
 from .choice_dialog import load_dialog_theme
+
+
+def _bounded_menu_scale(value):
+    return bounded_float(value, default=1.0, minimum=0.4, maximum=4.0)
 
 class BubbleButton(QPushButton):
     LABEL_BREAKS = {
@@ -35,7 +40,7 @@ class BubbleButton(QPushButton):
         self.image_mode = False
         self.text_color = text_color or "white"
         # 按菜单缩放比例缩放按钮，缩小时下限为 0.4
-        self.ui_scale = max(0.4, float(ui_scale))
+        self.ui_scale = _bounded_menu_scale(ui_scale)
         self.default_size = max(28, int(70 * self.ui_scale))
         self.image_size = max(32, int(80 * self.ui_scale))
         self.text_hover_size = max(self.default_size, int(self.default_size * 1.08))
@@ -264,7 +269,7 @@ class CircularMenuWidget(QWidget):
 
         self.center_pos = center_pos
         self.on_close_callback = on_close_callback
-        self.menu_scale = max(0.4, float(menu_scale))
+        self.menu_scale = _bounded_menu_scale(menu_scale)
         self.maid_widget = parent
 
         self.root_dir = str(runtime_root())
@@ -292,16 +297,13 @@ class CircularMenuWidget(QWidget):
 
     @staticmethod
     def _menu_scale_from_maid_scale(maid_scale):
-        try:
-            scale = float(maid_scale)
-        except (TypeError, ValueError):
-            scale = 1.0
+        scale = bounded_float(maid_scale, default=1.0, minimum=0.2, maximum=5.0)
 
         if scale >= 1.0:
             mapped = 1.0 + (scale - 1.0) * 0.75
         else:
             mapped = scale
-        return max(0.4, mapped)
+        return _bounded_menu_scale(mapped)
 
     def sync_menu_scale_from_maid(self):
         if self.maid_widget is None:

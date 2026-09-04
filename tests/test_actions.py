@@ -61,6 +61,19 @@ class MaidActionsTests(unittest.TestCase):
             duration_ms=10000,
         )
 
+    def test_invalid_screenshot_choice_is_blocked(self):
+        with (
+            patch("src.ui.action.choice_dialog.ask_save_location", return_value="bad"),
+            patch("src.ui.action.screen_shot.capture_screen_content") as capture,
+        ):
+            self.actions.do_screenshot()
+
+        capture.assert_not_called()
+        self.dialogue.show_message.assert_called_once_with(
+            "屏幕截图",
+            "无效的保存位置，已取消截图",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

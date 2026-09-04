@@ -10,6 +10,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
+from src.core.numeric import bounded_float, bounded_int
+
+
+MAX_TEXT_INPUT_CHARS = 4096
+MAX_DOUBLE_INPUT_ABS = 1.0e12
+MAX_DOUBLE_INPUT_DECIMALS = 12
+
 def get_text_input(parent_widget, title="输入", label="请输入内容:"):
     """
     弹出一个简单的文本输入对话框，获取用户输入。
@@ -22,11 +29,57 @@ def get_text_input(parent_widget, title="输入", label="请输入内容:"):
     Returns:
         str: 用户输入的文本。如果用户取消，则返回 None。
     """
-    text, ok = QInputDialog.getText(parent_widget, title, label, QLineEdit.EchoMode.Normal, "")
-    
-    if ok and text:
-        return text.strip()
+    dialog = QInputDialog(parent_widget)
+    dialog.setWindowTitle(str(title)[:200])
+    dialog.setLabelText(str(label)[:500])
+    dialog.setInputMode(QInputDialog.InputMode.TextInput)
+    dialog.setTextEchoMode(QLineEdit.EchoMode.Normal)
+    editor = dialog.findChild(QLineEdit)
+    if editor is not None:
+        editor.setMaxLength(MAX_TEXT_INPUT_CHARS)
+
+    if dialog.exec() == QDialog.DialogCode.Accepted:
+        text = dialog.textValue().strip()
+        if text:
+            return text
     return None
+
+
+def _normalize_double_input_options(value, min_value, max_value, decimals, step):
+    minimum = bounded_float(
+        min_value,
+        default=0.0,
+        minimum=-MAX_DOUBLE_INPUT_ABS,
+        maximum=MAX_DOUBLE_INPUT_ABS,
+    )
+    maximum = bounded_float(
+        max_value,
+        default=10.0,
+        minimum=-MAX_DOUBLE_INPUT_ABS,
+        maximum=MAX_DOUBLE_INPUT_ABS,
+    )
+    if minimum > maximum:
+        minimum, maximum = maximum, minimum
+
+    decimal_places = bounded_int(
+        decimals,
+        default=1,
+        minimum=0,
+        maximum=MAX_DOUBLE_INPUT_DECIMALS,
+    )
+    step_value = bounded_float(
+        step,
+        default=max(10.0 ** (-decimal_places), 0.1),
+        minimum=10.0 ** (-MAX_DOUBLE_INPUT_DECIMALS),
+        maximum=MAX_DOUBLE_INPUT_ABS,
+    )
+    initial_value = bounded_float(
+        value,
+        default=minimum,
+        minimum=minimum,
+        maximum=maximum,
+    )
+    return initial_value, minimum, maximum, decimal_places, step_value
 
 
 def get_double_input(
@@ -40,8 +93,15 @@ def get_double_input(
     step=0.1,
 ):
     """弹出一个自定义数值输入框，返回 float；取消时返回 None。"""
+    value, min_value, max_value, decimals, step = _normalize_double_input_options(
+        value,
+        min_value,
+        max_value,
+        decimals,
+        step,
+    )
     dialog = QDialog(parent_widget)
-    dialog.setWindowTitle(title)
+    dialog.setWindowTitle(str(title)[:200])
     dialog.setModal(True)
     dialog.setMinimumWidth(360)
     dialog.setStyleSheet(
@@ -95,15 +155,14 @@ def get_double_input(
     layout.setContentsMargins(16, 16, 16, 14)
     layout.setSpacing(12)
 
-    label_widget = QLabel(label, dialog)
+    label_widget = QLabel(str(label)[:500], dialog)
     layout.addWidget(label_widget)
 
     spin = QDoubleSpinBox(dialog)
-    spin.setDecimals(max(0, int(decimals)))
-    spin.setRange(float(min_value), float(max_value))
-    spin.setSingleStep(float(step))
-    clamped_value = max(float(min_value), min(float(max_value), float(value)))
-    spin.setValue(clamped_value)
+    spin.setDecimals(decimals)
+    spin.setRange(min_value, max_value)
+    spin.setSingleStep(step)
+    spin.setValue(value)
     spin.setAlignment(Qt.AlignmentFlag.AlignCenter)
     spin.selectAll()
     layout.addWidget(spin)
@@ -125,5 +184,5 @@ def get_double_input(
 
     if dialog.exec() == QDialog.DialogCode.Accepted:
         value = spin.value()
-        return round(value, max(0, int(decimals)))
+        return round(value, decimals)
     return None

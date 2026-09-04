@@ -7,6 +7,14 @@ from src.core.json_store import JsonStoreError, atomic_write_json, read_json_fil
 
 
 MAX_TODO_FILE_BYTES = 2 * 1024 * 1024
+MAX_TODO_TEXT_CHARS = 500
+MAX_TODOS_PER_DATE = 500
+MAX_TODO_DATES = 3660
+MAX_TOTAL_TODOS = 5000
+
+
+class TodoDataLimitError(ValueError):
+    """Raised when an attempted save exceeds the supported todo data limits."""
 
 
 def _normalize_ddl_time(raw_ddl):
@@ -51,7 +59,11 @@ def _normalize_task_item(item):
                 ddl = parsed_ddl
                 text = segments[1].strip() if len(segments) > 1 else ""
 
-    if not text:
+    if (
+        not text
+        or len(text) > MAX_TODO_TEXT_CHARS
+        or any(ord(character) < 32 for character in text)
+    ):
         return None
 
     return {"ddl": ddl, "text": text, "completed": completed}
@@ -114,49 +126,94 @@ def _build_default_items():
     return items
 
 
-def _normalize_items(items_by_date):
+def _normalize_items(items_by_date, *, strict_limits=False):
     normalized = {}
     if not isinstance(items_by_date, dict):
+        if strict_limits:
+            raise TodoDataLimitError("待办数据必须按日期组织")
         return normalized
 
-    for date_key, values in items_by_date.items():
-        try:
-            normalized_date = date.fromisoformat(str(date_key).strip()).isoformat()
-        except ValueError:
+    total_items = 0
+    for date_index, (date_key, values) in enumerate(items_by_date.items()):
+        if date_index >= MAX_TODO_DATES:
+            if strict_limits:
+                raise TodoDataLimitError(f"待办日期不能超过 {MAX_TODO_DATES} 个")
+            break
+
+        raw_date_key = str(date_key).strip()
+        if len(raw_date_key) != 10:
+            if strict_limits:
+                raise TodoDataLimitError(f"待办日期无效: {raw_date_key[:32]}")
             continue
+        try:
+            normalized_date = date.fromisoformat(raw_date_key).isoformat()
+        except ValueError:
+            if strict_limits:
+                raise TodoDataLimitError(f"待办日期无效: {raw_date_key[:32]}")
+            continue
+
+        if strict_limits and normalized_date in normalized:
+            raise TodoDataLimitError(f"待办日期重复: {normalized_date}")
 
         if isinstance(values, str):
             raw_items = [values]
         elif isinstance(values, list):
             raw_items = values
         else:
+            if strict_limits:
+                raise TodoDataLimitError(f"{normalized_date} 的待办必须是列表")
             continue
+
+        existing_items = normalized.get(normalized_date, [])
+        available_slots = MAX_TODOS_PER_DATE - len(existing_items)
+        if len(raw_items) > available_slots:
+            if strict_limits:
+                raise TodoDataLimitError(
+                    f"单日待办不能超过 {MAX_TODOS_PER_DATE} 项"
+                )
+            raw_items = raw_items[:available_slots]
 
         cleaned_items = []
         for item in raw_items:
             normalized_item = _normalize_task_item(item)
-            if normalized_item is not None:
-                cleaned_items.append(normalized_item)
+            if normalized_item is None:
+                if strict_limits:
+                    raise TodoDataLimitError(f"{normalized_date} 包含无效待办")
+                continue
+            if total_items >= MAX_TOTAL_TODOS:
+                if strict_limits:
+                    raise TodoDataLimitError(
+                        f"待办总数不能超过 {MAX_TOTAL_TODOS} 项"
+                    )
+                return normalized
+            cleaned_items.append(normalized_item)
+            total_items += 1
 
         if cleaned_items:
-            normalized[normalized_date] = sorted(cleaned_items, key=_task_sort_key)
+            normalized[normalized_date] = sorted(
+                [*existing_items, *cleaned_items],
+                key=_task_sort_key,
+            )
 
     return normalized
 
 
 def save_todo_items_by_date(items_by_date):
-    normalized = _normalize_items(items_by_date)
-    payload = {"items_by_date": normalized}
-    data_path = get_todo_data_path()
     try:
-        atomic_write_json(data_path, payload)
+        normalized = _normalize_items(items_by_date, strict_limits=True)
+        payload = {"items_by_date": normalized}
+        data_path = get_todo_data_path()
+        atomic_write_json(data_path, payload, max_bytes=MAX_TODO_FILE_BYTES)
         return True
-    except (OSError, TypeError, ValueError):
+    except (JsonStoreError, OSError, TypeError, ValueError):
         return False
 
 
 def load_todo_items_by_date():
-    data_path = get_todo_data_path()
+    try:
+        data_path = get_todo_data_path()
+    except OSError:
+        return _build_default_items()
     if not os.path.exists(data_path):
         default_items = _build_default_items()
         save_todo_items_by_date(default_items)
@@ -185,7 +242,13 @@ def set_todo_item_completed(date_key, ddl, text, *, completed):
     """Update the completed state of one matching item and persist it."""
 
     items_by_date = load_todo_items_by_date()
-    normalized_date = str(date_key).strip()
+    raw_date = str(date_key).strip()
+    if len(raw_date) != 10:
+        return False
+    try:
+        normalized_date = date.fromisoformat(raw_date).isoformat()
+    except ValueError:
+        return False
     normalized_target = _normalize_task_item({"ddl": ddl, "text": text})
     if normalized_target is None:
         return False

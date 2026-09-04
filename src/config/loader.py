@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import math
 from pathlib import Path
 from typing import Any, Optional
 
@@ -130,7 +131,7 @@ def _bounded_number(value: Any, default: float, minimum: float, maximum: float) 
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return default
     number = float(value)
-    if number < minimum or number > maximum:
+    if not math.isfinite(number) or number < minimum or number > maximum:
         return default
     return number
 

@@ -28,6 +28,39 @@ class JsonStoreTests(unittest.TestCase):
             with self.assertRaises(JsonStoreError):
                 read_json_file(path, max_bytes=1024)
 
+    def test_invalid_size_limits_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "state.json")
+            path.write_text("{}", encoding="utf-8")
+            for invalid_limit in (0, -1, True, 1.5):
+                with self.subTest(limit=invalid_limit):
+                    with self.assertRaises(JsonStoreError):
+                        read_json_file(path, max_bytes=invalid_limit)
+
+    def test_oversized_atomic_write_preserves_previous_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "state.json")
+            atomic_write_json(path, {"state": "old"})
+
+            with self.assertRaises(JsonStoreError):
+                atomic_write_json(path, {"state": "x" * 100}, max_bytes=32)
+
+            self.assertEqual(read_json_file(path, max_bytes=1024), {"state": "old"})
+
+    def test_pathological_json_depth_has_a_domain_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "deep.json")
+            path.write_text("[" * 1500 + "]" * 1500, encoding="utf-8")
+            with self.assertRaises(JsonStoreError):
+                read_json_file(path, max_bytes=4096)
+
+    def test_oversized_integer_has_a_domain_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "integer.json")
+            path.write_text("1" * 5000, encoding="utf-8")
+            with self.assertRaises(JsonStoreError):
+                read_json_file(path, max_bytes=8192)
+
 
 if __name__ == "__main__":
     unittest.main()

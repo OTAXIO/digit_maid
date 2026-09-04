@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -23,6 +24,10 @@ _INTEGER = re.compile(r"[-+]?\d+")
 _FLOAT = re.compile(r"[-+]?(?:\d+\.\d*|\d*\.\d+)(?:[eE][-+]?\d+)?")
 _FORBIDDEN_KEY_CHARS = frozenset("!&*{}[]|>%@`")
 _FORBIDDEN_SCALAR_PREFIXES = ("!", "&", "*", "{", "[", "|", ">", "%", "---", "...")
+MAX_YAML_TOKENS = 4096
+MAX_YAML_LINE_CHARS = 16 * 1024
+MAX_YAML_SCALAR_CHARS = 16 * 1024
+MAX_YAML_NESTING_DEPTH = 32
 
 
 def load_restricted_mapping(text: str) -> dict[str, Any]:
@@ -38,7 +43,7 @@ def load_restricted_mapping(text: str) -> dict[str, Any]:
     if tokens[0].indent != 0:
         raise RestrictedYamlError(f"第 {tokens[0].line_number} 行：顶层不能缩进")
 
-    payload, position = _parse_block(tokens, 0, 0)
+    payload, position = _parse_block(tokens, 0, 0, depth=0)
     if position != len(tokens):
         token = tokens[position]
         raise RestrictedYamlError(f"第 {token.line_number} 行：缩进层级无效")
@@ -50,6 +55,10 @@ def load_restricted_mapping(text: str) -> dict[str, Any]:
 def _tokenize(text: str) -> list[_Token]:
     tokens: list[_Token] = []
     for line_number, raw_line in enumerate(text.splitlines(), start=1):
+        if len(raw_line) > MAX_YAML_LINE_CHARS:
+            raise RestrictedYamlError(
+                f"第 {line_number} 行：内容过长（限制 {MAX_YAML_LINE_CHARS} 个字符）"
+            )
         if "\x00" in raw_line:
             raise RestrictedYamlError(f"第 {line_number} 行：包含空字符")
         content = raw_line.lstrip(" ")
@@ -63,10 +72,21 @@ def _tokenize(text: str) -> list[_Token]:
         if "\t" in indent_text:
             raise RestrictedYamlError(f"第 {line_number} 行：不能使用 Tab 缩进")
         tokens.append(_Token(len(indent_text), content.rstrip(), line_number))
+        if len(tokens) > MAX_YAML_TOKENS:
+            raise RestrictedYamlError(f"配置项过多（限制 {MAX_YAML_TOKENS} 项）")
     return tokens
 
 
-def _parse_block(tokens: list[_Token], position: int, indent: int) -> tuple[Any, int]:
+def _parse_block(
+    tokens: list[_Token],
+    position: int,
+    indent: int,
+    *,
+    depth: int,
+) -> tuple[Any, int]:
+    if depth > MAX_YAML_NESTING_DEPTH:
+        raise RestrictedYamlError(f"配置嵌套过深（限制 {MAX_YAML_NESTING_DEPTH} 层）")
+
     is_list = tokens[position].content == "-" or tokens[position].content.startswith("- ")
     container: Any = [] if is_list else {}
 
@@ -90,6 +110,8 @@ def _parse_block(tokens: list[_Token], position: int, indent: int) -> tuple[Any,
             continue
 
         key, raw_value = _split_mapping(token)
+        if key in container:
+            raise RestrictedYamlError(f"第 {token.line_number} 行：键名重复: {key}")
         position += 1
         if raw_value:
             container[key] = _parse_scalar(raw_value, token.line_number)
@@ -97,7 +119,12 @@ def _parse_block(tokens: list[_Token], position: int, indent: int) -> tuple[Any,
 
         if position < len(tokens) and tokens[position].indent > indent:
             child_indent = tokens[position].indent
-            container[key], position = _parse_block(tokens, position, child_indent)
+            container[key], position = _parse_block(
+                tokens,
+                position,
+                child_indent,
+                depth=depth + 1,
+            )
         else:
             container[key] = {}
 
@@ -119,6 +146,11 @@ def _split_mapping(token: _Token) -> tuple[str, str]:
 
 
 def _parse_scalar(raw_value: str, line_number: int) -> Any:
+    if len(raw_value) > MAX_YAML_SCALAR_CHARS:
+        raise RestrictedYamlError(
+            f"第 {line_number} 行：标量过长（限制 {MAX_YAML_SCALAR_CHARS} 个字符）"
+        )
+
     if raw_value == "[]":
         return []
     if raw_value == "{}":
@@ -149,7 +181,16 @@ def _parse_scalar(raw_value: str, line_number: int) -> Any:
     if normalized in {"null", "~"}:
         return None
     if _INTEGER.fullmatch(raw_value):
-        return int(raw_value)
+        try:
+            return int(raw_value)
+        except (ValueError, OverflowError) as exc:
+            raise RestrictedYamlError(f"第 {line_number} 行：整数超出支持范围") from exc
     if _FLOAT.fullmatch(raw_value):
-        return float(raw_value)
+        try:
+            value = float(raw_value)
+        except (ValueError, OverflowError) as exc:
+            raise RestrictedYamlError(f"第 {line_number} 行：浮点数无效") from exc
+        if not math.isfinite(value):
+            raise RestrictedYamlError(f"第 {line_number} 行：浮点数必须是有限值")
+        return value
     return raw_value

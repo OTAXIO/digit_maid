@@ -1,4 +1,5 @@
 import csv
+import math
 import os
 import platform
 import subprocess
@@ -7,6 +8,7 @@ from datetime import datetime
 from PyQt6.QtCore import QStandardPaths
 
 from src.core.json_store import JsonStoreError, read_json_file
+from src.core.numeric import bounded_int
 
 
 MAX_COMMAND_CHARS = 92
@@ -32,6 +34,7 @@ def get_bridge_status_path():
 
 
 def _truncate(text, max_chars=MAX_COMMAND_CHARS):
+    max_chars = bounded_int(max_chars, default=MAX_COMMAND_CHARS, minimum=0, maximum=4096)
     text = " ".join(str(text).split())
     if len(text) <= max_chars:
         return text
@@ -42,14 +45,33 @@ def _truncate(text, max_chars=MAX_COMMAND_CHARS):
 
 def _format_updated_at(raw_value, fallback_mtime=None):
     if raw_value:
-        return str(raw_value)
-    if fallback_mtime:
-        return datetime.fromtimestamp(fallback_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        return _truncate(raw_value, 64)
+    if fallback_mtime is not None:
+        try:
+            return datetime.fromtimestamp(fallback_mtime).strftime("%Y-%m-%d %H:%M:%S")
+        except (OSError, OverflowError, ValueError):
+            pass
     return "未知"
 
 
+def _process_metric(raw_value, *, maximum):
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+    if not math.isfinite(value):
+        return 0.0
+    return max(0.0, min(value, maximum))
+
+
 def _load_bridge_status():
-    path = get_bridge_status_path()
+    try:
+        path = get_bridge_status_path()
+    except OSError as exc:
+        return {
+            "title": "Codex连接",
+            "content": f"状态目录不可用: {_truncate(exc, 120)}",
+        }
     if not os.path.exists(path):
         return None
 
@@ -122,14 +144,10 @@ def _list_codex_processes_posix():
         if pid == current_pid or not _is_codex_process(command):
             continue
 
-        try:
-            cpu = float(cpu_raw)
-        except ValueError:
-            cpu = 0.0
-        try:
-            mem = float(mem_raw)
-        except ValueError:
-            mem = 0.0
+        if pid <= 0:
+            continue
+        cpu = _process_metric(cpu_raw, maximum=100_000.0)
+        mem = _process_metric(mem_raw, maximum=100.0)
 
         processes.append(
             {
@@ -175,6 +193,8 @@ def _list_codex_processes_windows():
                 pid = int(row.get("ProcessId") or 0)
             except ValueError:
                 continue
+            if pid <= 0:
+                continue
             processes.append(
                 {
                     "pid": pid,
@@ -208,6 +228,8 @@ def _list_codex_processes_windows():
             pid = int(pid_raw)
         except ValueError:
             continue
+        if pid <= 0:
+            continue
         processes.append(
             {
                 "pid": pid,
@@ -230,7 +252,10 @@ def list_codex_processes():
 
 
 def get_codex_status_message(max_processes=4):
-    bridge_status = _load_bridge_status()
+    try:
+        bridge_status = _load_bridge_status()
+    except Exception as exc:
+        return "Codex连接", f"读取状态失败: {_truncate(exc, 120)}"
     if bridge_status is not None:
         return bridge_status["title"], bridge_status["content"]
 
@@ -245,6 +270,7 @@ def get_codex_status_message(max_processes=4):
             "未发现正在运行的 Codex 相关进程。\n如需显示任务进度，可让 Codex 写入状态桥接文件。",
         )
 
+    max_processes = bounded_int(max_processes, default=4, minimum=1, maximum=20)
     shown = processes[:max_processes]
     lines = [f"发现 {len(processes)} 个 Codex 相关进程"]
     for process in shown:

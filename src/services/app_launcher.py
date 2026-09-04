@@ -12,6 +12,7 @@ from src.config import ConfigError, load_launch_paths as _load_launch_paths
 
 
 _WINDOWS_CONSOLE_APPS = {"cmd.exe", "powershell.exe", "pwsh.exe"}
+MAX_APP_NAME_CHARS = 64
 
 
 def load_launch_paths() -> dict[str, list[str]]:
@@ -83,6 +84,9 @@ def open_application(app_name: str) -> str:
     """Launch only an exact APP/TOOL item from ``config/menu.yaml``."""
     if not isinstance(app_name, str) or not app_name.strip():
         return "应用名称不能为空"
+    app_name = app_name.strip()
+    if len(app_name) > MAX_APP_NAME_CHARS or any(ord(char) < 32 for char in app_name):
+        return f"应用名称无效（最多 {MAX_APP_NAME_CHARS} 个字符）"
 
     configured = _find_configured_app(app_name, load_launch_paths())
     if configured is None:

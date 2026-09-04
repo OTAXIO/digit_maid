@@ -143,8 +143,13 @@ def _parse_launcher(
     if normalized_label in seen_launchers:
         raise ConfigError(f"启动项名称不能重复: {label}")
 
+    if len(raw_targets) > MAX_TARGETS_PER_LAUNCHER:
+        raise ConfigError(
+            f"启动项 {label} 的候选路径不能超过 {MAX_TARGETS_PER_LAUNCHER} 条"
+        )
+
     targets = []
-    for raw_target in raw_targets[:MAX_TARGETS_PER_LAUNCHER]:
+    for raw_target in raw_targets:
         target = clean_scalar(raw_target)
         if target is not None:
             targets.append(target)

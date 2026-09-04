@@ -16,17 +16,17 @@ class ConfigError(ValueError):
 
 
 def load_yaml_mapping(path: Path) -> dict[str, Any]:
+    path = Path(path)
     try:
-        size = path.stat().st_size
-    except OSError as exc:
-        raise ConfigError(f"无法读取配置 {path}: {exc}") from exc
-
-    if size > MAX_CONFIG_BYTES:
-        raise ConfigError(f"配置文件过大: {path} ({size} bytes)")
-
-    try:
-        payload = load_restricted_mapping(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, RestrictedYamlError) as exc:
+        with path.open("rb") as handle:
+            raw_payload = handle.read(MAX_CONFIG_BYTES + 1)
+        if len(raw_payload) > MAX_CONFIG_BYTES:
+            raise ConfigError(f"配置文件过大: {path}（限制 {MAX_CONFIG_BYTES} bytes）")
+        text = raw_payload.decode("utf-8")
+        payload = load_restricted_mapping(text)
+    except ConfigError:
+        raise
+    except (OSError, UnicodeError, RestrictedYamlError, RecursionError) as exc:
         raise ConfigError(f"YAML 配置无效 {path}: {exc}") from exc
 
     if not isinstance(payload, dict):

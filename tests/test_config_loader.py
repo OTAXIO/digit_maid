@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from src.config import (
     ConfigError,
@@ -34,6 +35,40 @@ class ConfigLoaderTests(unittest.TestCase):
                 "theme: &base\n  menu_style: circular\ncopy: *base\n",
             )
             with self.assertRaises(ConfigError):
+                load_dialog_theme(path)
+
+    def test_duplicate_yaml_keys_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write(
+                directory,
+                "theme.yaml",
+                "menu_style: list\nmenu_style: circular\n",
+            )
+            with self.assertRaisesRegex(ConfigError, "键名重复"):
+                load_dialog_theme(path)
+
+    def test_non_finite_yaml_numbers_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write(
+                directory,
+                "todo.yaml",
+                "desktop_guard_hours: 1.0e999\n",
+            )
+            with self.assertRaisesRegex(ConfigError, "有限值"):
+                load_todo_reminder_config(path)
+
+    def test_excessive_yaml_nesting_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lines = [f"{'  ' * depth}level_{depth}:" for depth in range(35)]
+            lines.append(f"{'  ' * 35}value: true")
+            path = self._write(directory, "deep.yaml", "\n".join(lines))
+            with self.assertRaisesRegex(ConfigError, "嵌套过深"):
+                load_dialog_theme(path)
+
+    def test_oversized_config_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write(directory, "large.yaml", "key: " + "x" * (256 * 1024))
+            with self.assertRaisesRegex(ConfigError, "配置文件过大"):
                 load_dialog_theme(path)
 
     def test_animation_paths_are_confined_to_resources(self):
@@ -86,6 +121,20 @@ loops:
                     "snooze_minutes": 45,
                 },
             )
+
+    def test_programmatic_nan_reminder_value_uses_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write(
+                directory,
+                "todo.yaml",
+                "desktop_guard_hours: 2\npopup_reminder_hours: 1\nsnooze_minutes: 30\n",
+            )
+            with patch(
+                "src.config.loader.load_yaml_mapping",
+                return_value={"desktop_guard_hours": float("nan")},
+            ):
+                config = load_todo_reminder_config(path)
+            self.assertEqual(config["desktop_guard_hours"], 2.0)
 
 
 if __name__ == "__main__":

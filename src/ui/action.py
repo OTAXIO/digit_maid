@@ -4,6 +4,7 @@ from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint, QSettings, Qt
 import os
 from src.config import ConfigError, load_menu_config
 from src.core.paths import config_path, runtime_root
+from src.core.numeric import bounded_float
 from src.function import startup, codex_status
 from src.menu import MenuConfig
 from src.menu.circular_builder import build_circular_items
@@ -307,7 +308,12 @@ class MaidActions:
         bottom_y = self.parent.y() + self.parent.height()
 
         source_size = getattr(self.parent, "_source_frame_size", None)
-        base_render_scale = float(getattr(self.parent, "base_render_scale", 0.5))
+        base_render_scale = bounded_float(
+            getattr(self.parent, "base_render_scale", 0.5),
+            default=0.5,
+            minimum=0.05,
+            maximum=5.0,
+        )
         if source_size is not None and hasattr(source_size, "isEmpty") and not source_size.isEmpty():
             base_height = max(1, int(round(source_size.height() * base_render_scale)))
         else:
@@ -331,17 +337,14 @@ class MaidActions:
         return QPoint(current_center.x(), center_y)
 
     def _menu_scale_from_maid_scale(self, maid_scale):
-        try:
-            scale = float(maid_scale)
-        except (TypeError, ValueError):
-            scale = 1.0
+        scale = bounded_float(maid_scale, default=1.0, minimum=0.2, maximum=5.0)
 
         # 放大时按 0.75 幅跟随；缩小时按 1:1 跟随，仅保留下限 0.4
         if scale >= 1.0:
             mapped = 1.0 + (scale - 1.0) * 0.75
         else:
             mapped = scale
-        return max(0.4, mapped)
+        return bounded_float(mapped, default=1.0, minimum=0.4, maximum=4.0)
 
     def _shift_menu_anchor_up(self, anchor_point):
         shifted = QPoint(anchor_point)
@@ -764,6 +767,9 @@ class MaidActions:
         elif choice == "none":
             self.dialogue.show_message("屏幕截图", "已取消截图保存")
             return
+        else:
+            self.dialogue.show_message("屏幕截图", "无效的保存位置，已取消截图")
+            return
 
         print(f"正在识别屏幕... 保存到: {choice}")
         
@@ -812,6 +818,9 @@ class MaidActions:
             save_path = os.path.join(my_pics, "Screenshots")
         elif choice == "none":
             self.dialogue.show_message("屏幕截图", "已取消截图保存")
+            return
+        else:
+            self.dialogue.show_message("屏幕截图", "无效的保存位置，已取消截图")
             return
 
         print(f"正在识别屏幕... 保存到: {choice}")

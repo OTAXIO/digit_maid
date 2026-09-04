@@ -125,6 +125,16 @@ menus:
             with self.assertRaises(ConfigError):
                 load_menu_config(path)
 
+    def test_launcher_candidate_count_is_rejected_instead_of_truncated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            targets = "\n".join(f"          - app-{index}.exe" for index in range(21))
+            path = self._write(
+                directory,
+                f"menus:\n  APP:\n    Editor:\n      launch:\n{targets}\n  TOOL: {{}}\n",
+            )
+            with self.assertRaisesRegex(ConfigError, "不能超过 20 条"):
+                load_menu_config(path)
+
     def test_project_menu_contains_builtins_and_game_category(self):
         config = load_menu_config()
         self.assertIn("Steam", config.launch_paths())

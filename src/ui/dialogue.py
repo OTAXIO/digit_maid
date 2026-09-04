@@ -1,5 +1,4 @@
 import html
-import math
 import sys
 
 from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QApplication
@@ -7,6 +6,7 @@ from PyQt6.QtCore import Qt, QTimer, QRectF
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath, QFont, QTextDocument
 
 from src.input.choice_dialog import load_dialog_theme
+from src.core.numeric import bounded_float, bounded_int
 
 
 def _default_ui_font_family():
@@ -114,24 +114,23 @@ class SpeechBubble(QWidget):
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self.close)
-        try:
-            duration_ms = int(duration_ms)
-        except (TypeError, ValueError):
-            duration_ms = DEFAULT_MESSAGE_DURATION_MS
-        self.timer.start(max(1000, min(duration_ms, 60000)))
+        duration_ms = bounded_int(
+            duration_ms,
+            default=DEFAULT_MESSAGE_DURATION_MS,
+            minimum=1000,
+            maximum=60000,
+        )
+        self.timer.start(duration_ms)
 
     @staticmethod
     def _menu_scale_from_maid_scale(maid_scale):
-        try:
-            scale = float(maid_scale)
-        except (TypeError, ValueError):
-            scale = 1.0
+        scale = bounded_float(maid_scale, default=1.0, minimum=0.2, maximum=5.0)
 
         if scale >= 1.0:
             mapped = 1.0 + (scale - 1.0) * 0.75
         else:
             mapped = scale
-        return max(0.4, mapped)
+        return bounded_float(mapped, default=1.0, minimum=0.4, maximum=4.0)
 
     def _resolve_ui_scale(self):
         if self.target is None:
@@ -145,7 +144,7 @@ class SpeechBubble(QWidget):
         return radius
 
     def _apply_scaled_style(self, ui_scale, force=False):
-        ui_scale = max(0.4, float(ui_scale))
+        ui_scale = bounded_float(ui_scale, default=1.0, minimum=0.4, maximum=4.0)
         if not force and abs(ui_scale - self.ui_scale) <= 1e-6:
             return False
 
