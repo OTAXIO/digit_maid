@@ -10,6 +10,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QCalendarWidget,
     QFrame,
+    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -48,10 +49,10 @@ class _TodoItemEditDelegate(QStyledItemDelegate):
         editor.setStyleSheet(
             "QTextEdit {"
             "background-color: #ffffff;"
-            "color: #2f2220;"
-            "border: 2px solid #c41c1c;"
-            "border-radius: 6px;"
-            "padding: 2px 4px;"
+            "color: #332724;"
+            "border: 2px solid #b82931;"
+            "border-radius: 10px;"
+            "padding: 5px 8px;"
             "}"
         )
         return editor
@@ -118,9 +119,9 @@ class TodoPanel(QWidget):
         self._today_visible_indexes = []
         self._delete_slot_visible = False
 
-        self.expanded_width = 860
-        self.collapsed_width = 300
-        self.panel_height = 520
+        self.expanded_width = 940
+        self.collapsed_width = 400
+        self.panel_height = 620
         self.root_dir = str(runtime_root())
 
         self.setWindowFlags(
@@ -138,163 +139,160 @@ class TodoPanel(QWidget):
 
     def _build_ui(self):
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setContentsMargins(16, 16, 16, 16)
 
         card = QFrame(self)
         card.setObjectName("todo_card")
         card_style = (
             """
             QFrame#todo_card {
-                background-color: #fffdfb;
-                border: 2px solid #c41c1c;
-                border-radius: 8px;
+                background-color: #f7f2ef;
+                border: 1px solid #ead8d3;
+                border-radius: 24px;
             }
             QFrame#todo_card * {
-                font-family: "__UI_FONT_FAMILY__";
-                font-weight: 700;
+                font-family: "__UI_FONT_FAMILY__", "SF Pro Display", "Microsoft YaHei UI";
+                font-weight: 400;
             }
             QLabel#title_label {
-                color: #2f2220;
-                font-size: 20px;
+                color: #251d1b;
+                font-size: 27px;
                 font-weight: 700;
             }
             QLabel#subtitle_label {
-                color: #7a5b55;
-                font-size: 13px;
-                font-weight: 600;
+                color: #8b746e;
+                font-size: 12px;
+                font-weight: 400;
             }
             QLabel#section_title {
-                color: #3f2c28;
-                font-size: 15px;
-                font-weight: 700;
-            }
-            QLabel#month_caption {
-                color: #8a6259;
-                font-size: 12px;
+                color: #392c29;
+                font-size: 14px;
                 font-weight: 600;
             }
+            QLabel#month_caption {
+                color: #927b75;
+                font-size: 11px;
+                font-weight: 500;
+            }
+            QFrame#section_card {
+                background: #fffdfc;
+                border: 1px solid #eadfdb;
+                border-radius: 18px;
+            }
             QPushButton#close_btn {
-                min-width: 30px;
-                max-width: 30px;
-                min-height: 30px;
-                max-height: 30px;
-                border: none;
-                border-radius: 8px;
-                background-color: #c41c1c;
-                color: white;
-                font-size: 17px;
-                font-weight: 800;
+                min-width: 26px;
+                max-width: 26px;
+                min-height: 26px;
+                max-height: 26px;
+                border: 1px solid #a71d25;
+                border-radius: 13px;
+                background-color: #c7333c;
+                color: #ffffff;
+                font-size: 14px;
+                font-weight: 600;
             }
             QPushButton#close_btn:hover {
-                background-color: #e1372f;
+                background-color: #df4850;
             }
             QPushButton#close_btn:pressed {
-                background-color: #8f1515;
+                background-color: #9b2028;
             }
-            QPushButton#expand_btn {
-                border: 1px solid #d65b54;
-                border-radius: 6px;
-                background-color: #fff8f7;
-                color: #5f3d37;
-                padding: 4px 10px;
-                font-size: 12px;
-                font-weight: 700;
-            }
-            QPushButton#expand_btn:hover,
-            QPushButton#today_btn:hover {
-                background-color: #c41c1c;
-            }
+            QPushButton#secondary_btn,
             QPushButton#todo_page_btn {
-                border: 2px solid #c41c1c;
-                border-radius: 8px;
-                background-color: #ffffff;
-                color: #5f3d37;
-                padding: 2px 8px;
-                font-size: 11px;
-                font-weight: 700;
+                border: 1px solid #e4d3ce;
+                border-radius: 10px;
+                background-color: #fffdfc;
+                color: #674f49;
+                padding: 5px 12px;
+                font-size: 12px;
+                font-weight: 600;
                 min-height: 24px;
             }
+            QPushButton#secondary_btn:hover,
             QPushButton#todo_page_btn:hover {
-                background-color: #c41c1c;
-                color: #ffffff;
+                background-color: #f5e7e3;
+                border-color: #d6b6af;
+                color: #a2252c;
             }
-            QPushButton#expand_btn:pressed {
-                background-color: #8f1515;
-                color: #ffffff;
+            QPushButton#todo_page_btn {
+                font-size: 11px;
             }
             QPushButton#todo_page_btn:disabled {
-                border-color: #e4c0bb;
-                color: #bf9e98;
-                background-color: #fff8f7;
+                border-color: #eee5e2;
+                color: #c9b9b4;
+                background-color: #faf6f4;
             }
             QLabel#todo_page_label {
-                color: #8a6259;
-                font-size: 12px;
-                font-weight: 700;
+                color: #927b75;
+                font-size: 11px;
+                font-weight: 500;
                 min-width: 52px;
                 max-width: 52px;
                 qproperty-alignment: AlignCenter;
             }
             QListWidget {
-                background-color: #fffaf9;
-                border: 1px solid #ead2cf;
-                border-radius: 8px;
-                padding: 6px;
+                background-color: #fbf7f5;
+                border: 1px solid #eee2de;
+                border-radius: 13px;
+                padding: 7px;
                 font-size: 13px;
-                color: #2f2220;
+                color: #332724;
+                outline: 0;
             }
             QListWidget::item {
-                padding: 6px 8px;
-                border-radius: 6px;
+                padding: 9px 10px;
+                margin: 2px 0;
+                border-radius: 9px;
             }
             QListWidget::item:selected {
-                background-color: #c41c1c;
+                background-color: #b82931;
                 color: #ffffff;
             }
             QLineEdit {
                 background-color: #ffffff;
-                border: 1px solid #ead2cf;
-                border-radius: 7px;
-                padding: 7px 9px;
-                color: #2f2220;
+                border: 1px solid #e6d7d2;
+                border-radius: 11px;
+                padding: 9px 11px;
+                color: #332724;
                 font-size: 13px;
             }
             QLineEdit:focus {
-                border: 2px solid #c41c1c;
+                border: 2px solid #b82931;
             }
             QLineEdit#ddl_input {
-                min-width: 82px;
-                max-width: 82px;
-                padding: 7px 6px;
+                min-width: 88px;
+                max-width: 88px;
+                padding: 9px 7px;
                 text-align: center;
             }
             QPushButton#icon_action_btn {
-                min-width: 34px;
-                max-width: 34px;
-                min-height: 34px;
-                max-height: 34px;
-                border: none;
-                border-radius: 6px;
-                background: transparent;
+                min-width: 38px;
+                max-width: 38px;
+                min-height: 38px;
+                max-height: 38px;
+                border: 1px solid #e3d1cc;
+                border-radius: 11px;
+                background: #f6e9e5;
             }
             QPushButton#icon_action_btn:hover {
-                background-color: rgba(196, 28, 28, 30);
+                background-color: #efd9d4;
+                border-color: #d8afa7;
             }
             QPushButton#icon_action_btn:pressed {
-                background-color: rgba(196, 28, 28, 55);
+                background-color: #e5c7c0;
             }
             QCalendarWidget {
-                background-color: #fffaf9;
-                border: 1px solid #ead2cf;
-                border-radius: 8px;
+                background-color: #fbf7f5;
+                border: 1px solid #eee2de;
+                border-radius: 13px;
             }
             QCalendarWidget QWidget {
                 alternate-background-color: #ffffff;
             }
             QCalendarWidget QToolButton {
-                color: #523834;
-                font-size: 14px;
-                font-weight: 700;
+                color: #4e3b37;
+                font-size: 13px;
+                font-weight: 600;
                 border: none;
                 min-width: 24px;
                 min-height: 24px;
@@ -319,13 +317,12 @@ class TodoPanel(QWidget):
                 top: 0px;
             }
             QCalendarWidget QAbstractItemView:enabled {
-                color: #3a2b28;
+                color: #463632;
                 background-color: #ffffff;
-                selection-background-color: #ffe36e;
-                selection-color: #5b4300;
+                selection-background-color: #b82931;
+                selection-color: #ffffff;
                 outline: 0;
             }
-            /* 新增：强化日历所有子部件背景为白色 */
             QCalendarWidget QAbstractItemView {
                 background-color: #ffffff;
                 alternate-background-color: #ffffff;
@@ -340,13 +337,27 @@ class TodoPanel(QWidget):
         )
         card.setStyleSheet(card_style.replace("__UI_FONT_FAMILY__", _default_ui_font_family()))
 
+        shadow = QGraphicsDropShadowEffect(card)
+        shadow.setBlurRadius(42)
+        shadow.setOffset(0, 10)
+        shadow.setColor(QColor(55, 25, 22, 75))
+        card.setGraphicsEffect(shadow)
+
         card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(18, 16, 18, 16)
-        card_layout.setSpacing(14)
+        card_layout.setContentsMargins(24, 22, 24, 24)
+        card_layout.setSpacing(18)
 
         self.header_area = QWidget(card)
         header_layout = QHBoxLayout(self.header_area)
         header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(10)
+
+        close_btn = QPushButton("×", card)
+        close_btn.setObjectName("close_btn")
+        close_btn.setToolTip("关闭待办")
+        close_btn.clicked.connect(self._close_from_symbol)
+        header_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
+
         title_column = QVBoxLayout()
         title_column.setSpacing(2)
 
@@ -362,19 +373,14 @@ class TodoPanel(QWidget):
         header_layout.addStretch(1)
 
         self.expand_btn = QPushButton("收起日历", card)
-        self.expand_btn.setObjectName("expand_btn")
+        self.expand_btn.setObjectName("secondary_btn")
         self.expand_btn.clicked.connect(self._toggle_month_section)
         header_layout.addWidget(self.expand_btn)
 
         self.today_btn = QPushButton("回到今天", card)
-        self.today_btn.setObjectName("today_btn")
+        self.today_btn.setObjectName("secondary_btn")
         self.today_btn.clicked.connect(self._go_to_today)
         header_layout.addWidget(self.today_btn)
-
-        close_btn = QPushButton("×", card)
-        close_btn.setObjectName("close_btn")
-        close_btn.clicked.connect(self._close_from_symbol)
-        header_layout.addWidget(close_btn)
 
         card_layout.addWidget(self.header_area)
 
@@ -382,10 +388,10 @@ class TodoPanel(QWidget):
         content_layout.setSpacing(14)
 
         left_section = QFrame(card)
-        left_section.setStyleSheet("QFrame { border: none; background: transparent; }")
+        left_section.setObjectName("section_card")
         left_layout = QVBoxLayout(left_section)
-        left_layout.setContentsMargins(0, 0, 0, 0)
-        left_layout.setSpacing(8)
+        left_layout.setContentsMargins(16, 16, 16, 16)
+        left_layout.setSpacing(10)
 
         self.left_title = QLabel("每日任务", left_section)
         self.left_title.setObjectName("section_title")
@@ -471,10 +477,10 @@ class TodoPanel(QWidget):
         content_layout.addWidget(left_section, 1)
 
         self.right_section = QFrame(card)
-        self.right_section.setStyleSheet("QFrame { border: none; background: transparent; }")
+        self.right_section.setObjectName("section_card")
         right_layout = QVBoxLayout(self.right_section)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(8)
+        right_layout.setContentsMargins(16, 16, 16, 16)
+        right_layout.setSpacing(10)
 
         month_title = QLabel("本月日历", self.right_section)
         month_title.setObjectName("section_title")
@@ -1191,8 +1197,8 @@ class TodoPanel(QWidget):
         grid_start = first_day.addDays(-leading_days)
 
         out_month_format = QTextCharFormat()
-        out_month_format.setBackground(QColor("#f1f1f1"))
-        out_month_format.setForeground(QColor("#2f2220"))
+        out_month_format.setBackground(QColor("#f4f0ee"))
+        out_month_format.setForeground(QColor("#a28f89"))
 
         for idx in range(42):
             qdate = grid_start.addDays(idx)
@@ -1202,8 +1208,8 @@ class TodoPanel(QWidget):
             self._marked_dates.append(qdate)
 
         month_light_format = QTextCharFormat()
-        month_light_format.setBackground(QColor("#fff1ef"))
-        month_light_format.setForeground(QColor("#2f2220"))
+        month_light_format.setBackground(QColor("#fffdfc"))
+        month_light_format.setForeground(QColor("#463632"))
 
         for day in range(1, day_count + 1):
             qdate = QDate(shown_year, shown_month, day)
@@ -1211,8 +1217,8 @@ class TodoPanel(QWidget):
             self._marked_dates.append(qdate)
 
         task_format = QTextCharFormat()
-        task_format.setBackground(QColor("#ffcdc8"))
-        task_format.setForeground(QColor("#2f2220"))
+        task_format.setBackground(QColor("#f3d9d4"))
+        task_format.setForeground(QColor("#6b2e2f"))
 
         for date_key, tasks in self.items_by_date.items():
             if not tasks:
@@ -1232,16 +1238,16 @@ class TodoPanel(QWidget):
         today = QDate.currentDate()
         if today.year() == shown_year and today.month() == shown_month:
             today_format = QTextCharFormat()
-            today_format.setBackground(QColor("#ff9a91"))
-            today_format.setForeground(QColor("#2f2220"))
+            today_format.setBackground(QColor("#e8b4ac"))
+            today_format.setForeground(QColor("#5c2629"))
             self.calendar.setDateTextFormat(today, today_format)
             self._marked_dates.append(today)
 
         selected = self.calendar.selectedDate()
         if selected.isValid():
             selected_format = QTextCharFormat()
-            selected_format.setBackground(QColor("#ffe36e"))
-            selected_format.setForeground(QColor("#2f2220"))
+            selected_format.setBackground(QColor("#b82931"))
+            selected_format.setForeground(QColor("#ffffff"))
             self.calendar.setDateTextFormat(selected, selected_format)
             self._marked_dates.append(selected)
 

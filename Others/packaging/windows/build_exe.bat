@@ -1,7 +1,8 @@
 @echo off
 setlocal
 
-cd /d %~dp0
+for %%I in ("%~dp0..\..\..") do set "REPO_ROOT=%%~fI"
+cd /d "%REPO_ROOT%"
 
 set "PYTHON_EXE=python"
 if defined CONDA_PREFIX (
@@ -37,8 +38,8 @@ if "%SKIP_INSTALL%"=="0" (
   echo [1/3] Skipping dependency install --skip-install.
 )
 
-echo [3/3] Building DigitMaid.exe from DigitMaid.spec...
-"%PYTHON_EXE%" -m PyInstaller --noconfirm --clean DigitMaid.spec
+echo [3/3] Building DigitMaid.exe from Others\packaging\windows\DigitMaid.spec...
+"%PYTHON_EXE%" -m PyInstaller --noconfirm --clean Others\packaging\windows\DigitMaid.spec
 if errorlevel 1 (
   echo Build failed.
   exit /b 1

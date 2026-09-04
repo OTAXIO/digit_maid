@@ -13,6 +13,7 @@ from src.core.paths import runtime_root
 from src.ui.dialogue import DialogueSystem
 from src.ui.action import MaidActions
 from src.ui.menu_controller import OptionMenuController
+from src.ui.todo_reminder import TodoReminderManager
 
 class MaidWindow(QWidget):
     def __init__(self):
@@ -32,6 +33,7 @@ class MaidWindow(QWidget):
         self.current_action = "idle"
         self._edge_hidden = False
         self._edge_hidden_side = None
+        self._deadline_guard_active = False
         self._todo_panel_open = False
         self._is_dragging = False
         self._is_double_click = False
@@ -124,6 +126,7 @@ class MaidWindow(QWidget):
             self.play_action("idle")
             
         self._reset_inactivity_timer()
+        self.todo_reminder_manager = TodoReminderManager(self)
 
 #--------------------------------窗口层级与菜单状态----------------------------------------
     def _keep_on_top(self):
@@ -232,6 +235,34 @@ class MaidWindow(QWidget):
         return controller.allows(operation_name)
 
 #--------------------------------贴边隐藏逻辑----------------------------------------
+    def set_deadline_guard_active(self, active):
+        """Keep the pet fully visible while an unfinished DDL is close."""
+
+        active = bool(active)
+        changed = self._deadline_guard_active != active
+        self._deadline_guard_active = active
+        if not active:
+            return changed
+
+        hidden_side = self._edge_hidden_side if self._edge_hidden else None
+        should_raise = changed or hidden_side is not None or not self.isVisible()
+        if hidden_side is not None:
+            self._wake_from_edge_hidden_mode()
+            screen_geo = self.screen().availableGeometry()
+            margin = 24
+            if hidden_side == "left":
+                target_x = screen_geo.left() + margin
+            else:
+                target_x = screen_geo.right() - self.width() - margin + 1
+            target_y = max(screen_geo.top(), min(self.y(), self._bottom_y_limit()))
+            self.move(target_x, target_y)
+
+        if not self.isVisible():
+            self.show()
+        if should_raise:
+            self.raise_()
+        return changed
+
     def _edge_hide_side_for_x(self, x=None, tolerance=2):
         if x is None:
             x = self.x()
@@ -262,6 +293,9 @@ class MaidWindow(QWidget):
         self.move(target_x, target_y)
 
     def _enter_edge_hidden_mode(self, side):
+        if self._deadline_guard_active:
+            return False
+
         side = str(side).lower()
         if side not in ("left", "right"):
             return False

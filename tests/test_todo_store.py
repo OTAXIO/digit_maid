@@ -32,6 +32,34 @@ class TodoStoreTests(unittest.TestCase):
             self.assertTrue(fallback)
             self.assertEqual(path.read_text(encoding="utf-8"), original)
 
+    def test_complete_removes_only_one_matching_item(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory, "todo.json")
+            with patch.object(todo_store, "get_todo_data_path", return_value=str(path)):
+                todo_store.save_todo_items_by_date(
+                    {
+                        "2026-09-04": [
+                            {"ddl": "09:30", "text": "提交报告"},
+                            {"ddl": "09:30", "text": "提交报告"},
+                            {"ddl": "10:00", "text": "整理记录"},
+                        ]
+                    }
+                )
+                self.assertTrue(
+                    todo_store.complete_todo_item("2026-09-04", "09:30", "提交报告")
+                )
+                loaded = todo_store.load_todo_items_by_date()
+
+            self.assertEqual(
+                loaded,
+                {
+                    "2026-09-04": [
+                        {"ddl": "09:30", "text": "提交报告"},
+                        {"ddl": "10:00", "text": "整理记录"},
+                    ]
+                },
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

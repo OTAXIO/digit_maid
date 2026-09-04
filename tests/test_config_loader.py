@@ -2,7 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from src.config import ConfigError, load_animation_config, load_dialog_theme
+from src.config import (
+    ConfigError,
+    load_animation_config,
+    load_dialog_theme,
+    load_todo_reminder_config,
+)
 
 
 class ConfigLoaderTests(unittest.TestCase):
@@ -64,6 +69,22 @@ loops:
             self.assertEqual(
                 load_dialog_theme(path),
                 {"outline_button_text": "true", "menu_style": "circular"},
+            )
+
+    def test_todo_reminder_values_are_bounded_independently(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self._write(
+                directory,
+                "todo.yaml",
+                "desktop_guard_hours: 3.5\npopup_reminder_hours: -1\nsnooze_minutes: 45\n",
+            )
+            self.assertEqual(
+                load_todo_reminder_config(path),
+                {
+                    "desktop_guard_hours": 3.5,
+                    "popup_reminder_hours": 1.0,
+                    "snooze_minutes": 45,
+                },
             )
 
 

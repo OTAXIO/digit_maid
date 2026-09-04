@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+cd "$REPO_ROOT"
 
 APP_NAME="DigitMaid"
 ICON_PNG="resource/wisdel/皮肤素材/维什戴尔大人.png"
@@ -55,7 +57,7 @@ echo "[2/5] Installing dependencies"
 "$PYTHON_EXE" -m pip install -r requirements.txt pyinstaller==6.16.0
 
 echo "[3/5] Building macOS app with icon"
-"$PYTHON_EXE" -m PyInstaller --noconfirm --clean DigitMaid.mac.spec
+"$PYTHON_EXE" -m PyInstaller --noconfirm --clean Others/packaging/macos/DigitMaid.mac.spec
 
 echo "[4/5] Packing DMG"
 rm -f "$DMG_PATH"

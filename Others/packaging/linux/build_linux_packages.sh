@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
-
-REPO_ROOT="$(pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+cd "$REPO_ROOT"
 APP_NAME="DigitMaid"
 PACKAGE_NAME="digitmaid"
 ICON_PNG="resource/wisdel/皮肤素材/维什戴尔大人.png"
@@ -41,7 +41,7 @@ echo "[1/6] Installing Python build dependencies"
 "$PYTHON_EXE" -m pip install -r requirements.txt pyinstaller==6.16.0
 
 echo "[2/6] Building Linux app bundle"
-"$PYTHON_EXE" -m PyInstaller --noconfirm --clean DigitMaid.linux.spec
+"$PYTHON_EXE" -m PyInstaller --noconfirm --clean Others/packaging/linux/DigitMaid.linux.spec
 
 if [[ ! -x "$APP_DIST_DIR/$APP_NAME" ]]; then
   echo "Build finished but $APP_DIST_DIR/$APP_NAME was not found."

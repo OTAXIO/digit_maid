@@ -6,7 +6,8 @@ Digit Maid 是一个基于 PyQt6 的跨平台桌面伴侣。它以无边框透�
 
 - 透明桌宠窗口：拖拽、缩放、置顶、贴边隐藏和多种动作动画。
 - 环形/列表菜单：分页、多级子菜单和屏幕边缘避让。
-- 待办面板：按日期保存、DDL 排序、日历标记、分页及行内编辑。
+- 待办面板：Apple 风格卡片排版、按日期保存、DDL 排序、日历标记、分页及行内编辑。
+- DDL 提醒：临期时唤回桌宠并锁定在桌面，每 10 分钟显示不会自动消失的强调提醒。
 - 配置驱动菜单：APP 与 TOOL 独立分区、均支持多层分类，并只允许启动 `config/menu.yaml` 中明确配置的程序。
 - 屏幕截图：保存到桌面、图片目录或用户选择的位置。
 - 行为模式：缓降、直落、不下坠，以及默认、运动、懒惰三种待机模式。
@@ -42,7 +43,7 @@ python src/core/run.py
 
 程序使用共享内存锁限制为单实例；如果 Digit Maid 已在运行，第二次启动会直接退出。
 
-安装包的下载与使用说明见 [DOWNLOAD_GUIDE.md](./DOWNLOAD_GUIDE.md)。
+安装包的下载与使用说明见 [Others/docs/DOWNLOAD_GUIDE.md](./Others/docs/DOWNLOAD_GUIDE.md)。
 
 ## 使用说明
 
@@ -59,6 +60,8 @@ python src/core/run.py
 - 输入 `HH:MM` 和内容后按回车或上传按钮新增任务。
 - 点击任务可行内编辑；选中任务后可删除。
 - 日历支持按日查看、月份汇总以及“回到今天”。
+- 进入临期保护时间后，桌宠会从侧栏回到桌面，并在截止前禁止再次贴边隐藏。
+- 进入提醒时间后，每 10 分钟弹出临期待办；弹窗只提供“标记已完成”和“p 分钟后提醒”，不会自行关闭。标记完成会从活动待办中移除当前强调事项。
 
 待办保存在系统应用数据目录下的 `todo_items.json`。写入采用临时文件加原子替换，异常中断不会覆盖原文件；损坏或超大文件也会保留，方便手动恢复。
 
@@ -95,6 +98,9 @@ export DIGITMAID_CODEX_STATUS_PATH="/path/to/codex_status.json"
 - `menu.yaml`：定义 APP/TOOL 分类、内置工具动作和跨平台启动路径。
 - `maid_animations.yaml`：动作素材、循环方式、下落和待机默认值。
 - `dialog_style.yaml`：菜单、按钮和对话气泡的样式素材。
+- `todo.yaml`：DDL 桌面保护时间 `n`、弹窗提醒时间 `m` 和稍后提醒分钟数 `p`。
+
+`config/todo.yaml` 位于仓库根目录的配置文件夹，并会随发布包一起打包。默认值为：提前 2 小时禁止贴边隐藏（`n`）、提前 1 小时开始弹窗（`m`）、点击稍后提醒后等待 30 分钟（`p`）。修改后重启 Digit Maid 生效；当天已经超时但尚未完成的事项仍会提醒，到午夜自动退出临期范围。
 
 ### 管理 APP 与 TOOL
 
@@ -165,7 +171,9 @@ loops:
 dmaid/
 ├── config/                    # 经安全校验的 YAML 配置
 ├── resource/                  # GIF、图片和按钮素材
-├── scripts/                   # Linux 打包脚本
+├── Others/                    # 打包、平台适配、下载文档与展示素材
+│   ├── docs/                  # 安装说明与 Markdown 图片
+│   └── packaging/             # Windows、macOS、Linux 构建文件
 ├── src/
 │   ├── ai/                    # 本地对话占位实现
 │   ├── config/                # YAML 加载和配置结构校验
@@ -177,7 +185,6 @@ dmaid/
 │   ├── ui/                    # 桌宠窗口、动作控制、对话和待办 UI
 │   └── __main__.py            # `python -m src` 入口
 ├── tests/                     # 配置、安全边界和持久化测试
-├── DigitMaid*.spec            # PyInstaller 多平台配置
 └── requirements.txt
 ```
 
@@ -220,21 +227,21 @@ GitHub Actions 会在 `main`、`OTAXIO` 推送及拉取请求上运行编译和�
 Windows：
 
 ```bat
-build_exe.bat
+Others\packaging\windows\build_exe.bat
 ```
 
 macOS：
 
 ```bash
-chmod +x build_dmg.sh
-./build_dmg.sh
+chmod +x Others/packaging/macos/build_dmg.sh
+Others/packaging/macos/build_dmg.sh
 ```
 
 Linux DEB/RPM：
 
 ```bash
-chmod +x scripts/build_linux_packages.sh
-scripts/build_linux_packages.sh
+chmod +x Others/packaging/linux/build_linux_packages.sh
+Others/packaging/linux/build_linux_packages.sh
 ```
 
 三个 PyInstaller spec 都会把 `resource/` 和 `config/` 一并打包。发布工作流支持 Windows x86_64、macOS Apple Silicon 和 Linux x86_64。

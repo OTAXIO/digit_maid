@@ -5,9 +5,9 @@ __pycache__/
 build/
 dist/
 *.spec
-!DigitMaid.spec
-!DigitMaid.mac.spec
-!DigitMaid.linux.spec
+!Others/packaging/windows/DigitMaid.spec
+!Others/packaging/macos/DigitMaid.mac.spec
+!Others/packaging/linux/DigitMaid.linux.spec
 *.pkg
 *.exe
 *.spine
@@ -17,3 +17,4 @@ dist/
 
 # Other generated files
 *.log
+.DS_Store

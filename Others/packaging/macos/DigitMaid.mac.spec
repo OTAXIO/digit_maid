@@ -1,13 +1,17 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
+
+REPO_ROOT = Path(SPECPATH).resolve().parents[2]
 
 a = Analysis(
-    ['src/core/run.py'],
-    pathex=[],
+    [str(REPO_ROOT / 'src' / 'core' / 'run.py')],
+    pathex=[str(REPO_ROOT)],
     binaries=[],
     datas=[
-        ('resource', 'resource'),
-        ('config', 'config'),
+        (str(REPO_ROOT / 'resource'), 'resource'),
+        (str(REPO_ROOT / 'config'), 'config'),
     ],
     hiddenimports=[],
     hookspath=[],
@@ -35,6 +39,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=[str(REPO_ROOT / 'build' / 'macos' / 'DigitMaid.icns')],
 )
 coll = COLLECT(
     exe,
@@ -44,4 +49,10 @@ coll = COLLECT(
     upx=True,
     upx_exclude=[],
     name='DigitMaid',
+)
+app = BUNDLE(
+    coll,
+    name='DigitMaid.app',
+    icon=str(REPO_ROOT / 'build' / 'macos' / 'DigitMaid.icns'),
+    bundle_identifier=None,
 )

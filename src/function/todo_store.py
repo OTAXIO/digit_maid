@@ -170,3 +170,25 @@ def load_todo_items_by_date():
     # 保留损坏或过大的原文件供用户恢复，不用默认模板覆盖它。
     default_items = _build_default_items()
     return default_items
+
+
+def complete_todo_item(date_key, ddl, text):
+    """Remove one exact active item after the user marks it completed."""
+
+    items_by_date = load_todo_items_by_date()
+    normalized_date = str(date_key).strip()
+    normalized_target = _normalize_task_item({"ddl": ddl, "text": text})
+    if normalized_target is None:
+        return False
+
+    tasks = list(items_by_date.get(normalized_date, []))
+    for index, raw_task in enumerate(tasks):
+        if _normalize_task_item(raw_task) != normalized_target:
+            continue
+        tasks.pop(index)
+        if tasks:
+            items_by_date[normalized_date] = tasks
+        else:
+            items_by_date.pop(normalized_date, None)
+        return save_todo_items_by_date(items_by_date)
+    return False

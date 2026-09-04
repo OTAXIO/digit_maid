@@ -1,0 +1,10 @@
+# 待办 DDL 提醒配置（修改后重启 Digit Maid 生效）
+# n：进入 DDL 前多少小时后，桌宠回到桌面并禁止贴边隐藏。
+desktop_guard_hours: 2
+
+# m：进入 DDL 前多少小时后开始提醒；未操作时弹窗会一直保留，
+# 选择稍后提醒后，再次提醒仍遵循下面的 p。
+popup_reminder_hours: 1
+
+# p：点击“稍后提醒”后延迟多少分钟再次弹出。
+snooze_minutes: 30

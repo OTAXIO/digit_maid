@@ -23,6 +23,12 @@ DEFAULT_ANIMATION_CONFIG = {
     "animations": {},
 }
 
+DEFAULT_TODO_REMINDER_CONFIG = {
+    "desktop_guard_hours": 2.0,
+    "popup_reminder_hours": 1.0,
+    "snooze_minutes": 30,
+}
+
 
 def _safe_animation_base_dir(raw_value: Any) -> str:
     value = clean_scalar(raw_value) or DEFAULT_ANIMATION_CONFIG["base_dir"]
@@ -118,3 +124,46 @@ def load_dialog_theme(path: Optional[Path] = None) -> dict[str, str]:
             if value is not None:
                 theme[key] = value
     return theme
+
+
+def _bounded_number(value: Any, default: float, minimum: float, maximum: float) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return default
+    number = float(value)
+    if number < minimum or number > maximum:
+        return default
+    return number
+
+
+def load_todo_reminder_config(path: Optional[Path] = None) -> dict[str, Any]:
+    """Load the three user-facing DDL reminder thresholds.
+
+    Invalid individual values fall back independently so one typo does not
+    disable the entire reminder service. Invalid YAML still raises ConfigError
+    and is reported by the application bootstrap.
+    """
+
+    source = path or config_path("todo.yaml")
+    payload = load_yaml_mapping(Path(source))
+    config = deepcopy(DEFAULT_TODO_REMINDER_CONFIG)
+    config["desktop_guard_hours"] = _bounded_number(
+        payload.get("desktop_guard_hours"),
+        config["desktop_guard_hours"],
+        0.0,
+        24.0 * 30,
+    )
+    config["popup_reminder_hours"] = _bounded_number(
+        payload.get("popup_reminder_hours"),
+        config["popup_reminder_hours"],
+        0.0,
+        24.0 * 30,
+    )
+    config["snooze_minutes"] = int(
+        _bounded_number(
+            payload.get("snooze_minutes"),
+            float(config["snooze_minutes"]),
+            1.0,
+            24.0 * 60,
+        )
+    )
+    return config

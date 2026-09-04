@@ -1,7 +1,7 @@
 """Validated configuration loaders."""
 
 from .base import ConfigError
-from .loader import load_animation_config, load_dialog_theme
+from .loader import load_animation_config, load_dialog_theme, load_todo_reminder_config
 from .menu_loader import load_app_paths, load_launch_paths, load_menu_config
 
 __all__ = [
@@ -11,4 +11,5 @@ __all__ = [
     "load_dialog_theme",
     "load_launch_paths",
     "load_menu_config",
+    "load_todo_reminder_config",
 ]
