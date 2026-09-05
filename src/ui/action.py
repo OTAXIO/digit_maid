@@ -403,7 +403,20 @@ class MaidActions:
             "codex_status": self.show_codex_status,
         }
 
+    def can_open_menu(self):
+        """所有菜单入口共用权限检查，提示不得打断正在拖动／下落的动作。"""
+        if getattr(self.parent, "is_dying", False) or getattr(self.parent, "_edge_hidden", False):
+            return False
+        controller = getattr(self.parent, "menu_controller", None)
+        if (self._is_todo_panel_visible() or getattr(self.parent, "_todo_panel_open", False)
+                or (controller is not None and controller.is_todo_panel_open)):
+            self.dialogue.show_message("待办", "请先关闭待办面板，再打开菜单。")
+            return False
+        return controller is None or controller.allows("allow_open_menu")
+
     def show_context_menu(self, global_pos):
+        if not self.can_open_menu():
+            return False
         # 拦截：如果气泡菜单已经存在并且开着，重复右击则关闭它（相当于开关切换）
         if hasattr(self, "circular_menu") and self.circular_menu is not None:
             if getattr(self.circular_menu, "isVisible", lambda: False)():
@@ -601,6 +614,8 @@ class MaidActions:
 
     def show_circular_menu(self, global_pos):
         """用半圆形菜单展开相同的选项"""
+        if not self.can_open_menu():
+            return False
         menu_config = self._read_menu_config()
         app_sub_items = build_circular_items(
             menu_config.applications,

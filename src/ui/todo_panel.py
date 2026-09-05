@@ -450,7 +450,13 @@ class TodoPanel(QWidget):
         self._fold_anim.start()
 
     def _persist_items(self):
-        return save_todo_items_by_date(self.items_by_date)
+        saved = save_todo_items_by_date(self.items_by_date)
+        manager = getattr(self.owner_widget, "todo_reminder_manager", None)
+        if saved and manager is not None:
+            # 新增临期待办立即唤醒桌宠；完成／删除后立即解除不再需要的保护。
+            # 这里只刷新隐藏权限，不在编辑过程中主动弹出提醒抢走焦点。
+            manager.refresh_desktop_guard()
+        return saved
 
     def _clear_editing_state(self, clear_input=False, clear_selection=True):
         self._edit_save_timer.stop()
@@ -1071,11 +1077,14 @@ class TodoPanel(QWidget):
         if self._editing_date_key is not None and not self._save_current_editor():
             self._set_status_text("修改尚未保存，请修正后再关闭")
             return
-        if callable(self.on_close_callback):
-            self.on_close_callback()
         self._allow_close = True
-        self.close()
-        self._allow_close = False
+        try:
+            closed = self.close()
+        finally:
+            self._allow_close = False
+        # 真正关闭后再解锁菜单和恢复待机，避免可见性检查误判面板仍在打开。
+        if closed and callable(self.on_close_callback):
+            self.on_close_callback()
 
     def eventFilter(self, obj, event):
         if obj is self.today_list.viewport():

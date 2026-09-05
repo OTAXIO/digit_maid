@@ -8,6 +8,7 @@ class MenuOperationPolicy:
     allow_drag: bool = True
     allow_double_click: bool = True
     allow_fall: bool = True
+    allow_open_menu: bool = True
 
 
 class OptionMenuController:
@@ -45,15 +46,6 @@ class OptionMenuController:
 
     @property
     def policy(self) -> MenuOperationPolicy:
-        if self._todo_panel_open:
-            return MenuOperationPolicy(
-                allow_idle_timer=False,
-                allow_wander=False,
-                allow_drag=False,
-                allow_double_click=False,
-                allow_fall=False,
-            )
-
         if self._custom_scale_adjusting:
             return MenuOperationPolicy(
                 allow_idle_timer=False,
@@ -61,6 +53,19 @@ class OptionMenuController:
                 allow_drag=False,
                 allow_double_click=False,
                 allow_fall=False,
+                allow_open_menu=False,
+            )
+
+        if self._todo_panel_open:
+            # 待办面板独立于桌宠：允许拖动与松手下落，但不能再打开菜单。
+            # 临期禁用隐藏由桌面保护单独判断，不与待办窗口的可见性混用。
+            return MenuOperationPolicy(
+                allow_idle_timer=False,
+                allow_wander=False,
+                allow_drag=True,
+                allow_double_click=False,
+                allow_fall=True,
+                allow_open_menu=False,
             )
 
         if self.is_menu_open:

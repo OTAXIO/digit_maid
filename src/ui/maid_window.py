@@ -297,6 +297,12 @@ class MaidWindow(QWidget):
         self.move(target_x, target_y)
 
     def _enter_edge_hidden_mode(self, side):
+        if self.is_dying or self._custom_scale_adjusting:
+            return False
+        # 隐藏前读取最新待办，避免 30 秒定时检查的间隙误入临期隐藏状态。
+        manager = getattr(self, "todo_reminder_manager", None)
+        if manager is not None:
+            manager.refresh_desktop_guard()
         if self._deadline_guard_active:
             return False
 
@@ -926,6 +932,12 @@ class MaidWindow(QWidget):
                 self._ensure_keyboard_stand_animation()
             return
 
+        # 待办面板允许拖动和下落；物理动作优先于待办的交互待机状态。
+        if self._is_falling and not self._is_at_bottom_boundary(tolerance=0):
+            if self.current_action != "fly":
+                self.play_action("fly", force_loop=True)
+            return
+
         # 菜单打开期间锁定为 interact，避免动作结束后误回 idle
         if self._is_menu_ui_active():
             self._stop_inactivity_timer(reset_stage=True)
@@ -933,12 +945,6 @@ class MaidWindow(QWidget):
                 self.play_action("interact", force_loop=True)
             elif self.current_movie is not None:
                 self.current_movie.start()
-            return
-
-        # 下落阶段若动作结束，保持 fly 直到真正落地
-        if self._is_falling and not self._is_at_bottom_boundary(tolerance=0):
-            if self.current_action != "fly":
-                self.play_action("fly", force_loop=True)
             return
 
         if self.current_loop:
@@ -1198,12 +1204,7 @@ class MaidWindow(QWidget):
         else:
             self._last_context_menu_request_at = time.monotonic()
 
-        if self._is_todo_panel_effectively_open():
-            self.menu_interact_mode = True
-            self._stop_inactivity_timer(reset_stage=True)
-            self.wander_timer.stop()
-            self.play_action("interact", force_loop=True)
-            self.dialogue_system.show_message("待办", "请先点击待办框右上角关闭按钮。")
+        if not self.maid_actions.can_open_menu():
             return False
 
         # 容忍 GIF 帧尺寸切换带来的轻微 y 抖动，避免贴底边视觉上到位却偶发判定失败。

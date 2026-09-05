@@ -235,12 +235,7 @@ class TodoReminderManager(QObject):
         current_time = now if isinstance(now, datetime) else datetime.now()
         items_by_date = load_todo_items_by_date()
 
-        guard_todos = find_due_todos(
-            items_by_date,
-            current_time,
-            self.config["desktop_guard_hours"],
-        )
-        self.maid_window.set_deadline_guard_active(bool(guard_todos))
+        self._update_desktop_guard(items_by_date, current_time)
 
         reminder_todos = find_due_todos(
             items_by_date,
@@ -272,6 +267,15 @@ class TodoReminderManager(QObject):
         self._next_regular_at = current_time + timedelta(
             minutes=self.REGULAR_REMINDER_MINUTES
         )
+
+    def _update_desktop_guard(self, items_by_date, now):
+        guard_todos = find_due_todos(items_by_date, now, self.config["desktop_guard_hours"])
+        self.maid_window.set_deadline_guard_active(bool(guard_todos))
+
+    def refresh_desktop_guard(self):
+        """保存或隐藏前即时刷新保护，不弹提醒窗口、不抢编辑焦点。"""
+        if not self._stopped:
+            self._update_desktop_guard(load_todo_items_by_date(), datetime.now())
 
     def _show_dialog(self, todos: list[DueTodo], now: datetime):
         if self._dialog is None:
