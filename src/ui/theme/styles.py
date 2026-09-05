@@ -1,6 +1,6 @@
 """公共控件与页面样式。改颜色请到 theme/__init__.py，改布局请到窗口类。"""
 
-from . import qss
+from . import P, qss, translucent_color
 
 
 BASE = qss('''
@@ -57,9 +57,9 @@ TODO = BASE + qss('''
         padding: 4px 9px; font-size: 11px; font-weight: 600; }
     QLabel#editor_state_badge[completed="true"] { color: $completed; background: $completed_bg; }
     QLabel#editor_hint[error="true"] { color: $accent; }
-    QTextEdit#task_editor { background: $canvas; border: 1px solid $line;
+    QTextEdit#task_editor { background: $pending_background; border: 1px solid $pending_border;
         border-radius: 12px; padding: 14px; font-size: 15px; }
-    QTextEdit#task_editor:focus { border-color: $accent; background: $white; }
+    QTextEdit#task_editor:focus { border-color: $accent; background: $pending_background; }
     QTextEdit#task_editor[completed="true"] { background: $completed_bg; color: $completed;
         border-color: $line; text-decoration: line-through; }
     QPushButton#back_to_list_btn { background: transparent; border: none; color: $muted;
@@ -87,6 +87,23 @@ TODO = BASE + qss('''
     QCalendarWidget QAbstractItemView:enabled { color: $ink; background: $surface;
         selection-background-color: $accent; selection-color: $white; outline: 0; }
     QCalendarWidget QWidget#qt_calendar_navigationbar { background: $surface; }
+''', pending_background=translucent_color(P.accent, 24), pending_border=translucent_color(P.accent, 90))
+
+
+CALENDAR_MONTH_MENU = qss('''
+    QMenu { background-color: $white; color: $ink; border: 1px solid $line;
+        padding: 4px; font-family: "$font"; font-size: 12px; }
+    QMenu::item { background-color: transparent; color: $ink; padding: 6px 20px; }
+    QMenu::item:selected { background-color: $accent_soft; color: $accent; }
+    QMenu::item:disabled { color: $faint; }
+''')
+
+CALENDAR_YEAR_EDITOR = qss('''
+    QSpinBox, QSpinBox QLineEdit { background-color: $white; color: $ink;
+        selection-background-color: $accent_soft; selection-color: $ink; }
+    QSpinBox { border: 1px solid $line; border-radius: 5px; padding: 3px 18px 3px 6px; }
+    QSpinBox:focus { border-color: $accent; }
+    QSpinBox::up-button, QSpinBox::down-button { background-color: $white; border: none; width: 16px; }
 ''')
 
 

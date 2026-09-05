@@ -332,6 +332,8 @@ class TodoPanel(QWidget):
         month_section_layout.addWidget(self.month_caption)
 
         self.month_list = QListWidget(self.month_section)
+        self.month_list.setItemDelegate(TodoItemDelegate(self.month_list, compact=True))
+        self.month_list.setMouseTracking(True)
         self.month_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
         self.month_list.setWordWrap(True)
         self.month_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -987,6 +989,8 @@ class TodoPanel(QWidget):
                 item = QListWidgetItem(
                     f"{prefix}{day.day:02d}日  {ddl_text}  {normalized_task['text']}"
                 )
+                item.setData(Qt.ItemDataRole.UserRole, normalized_task)
+                item.setToolTip(item.text())
                 if normalized_task["completed"]:
                     completed_font = item.font()
                     completed_font.setStrikeOut(True)

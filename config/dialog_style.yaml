@@ -1,11 +1,11 @@
 # 维维美主题：银白 / 炭黑 / 深红。公共色板位于 src/ui/theme/。
-# 默认使用轻描边的矢量按钮；切换 image 可恢复下面的原始贴图。
-outline_button_text: false
+# 菜单保留原始图片及文字描边；default 仅作为可选的矢量回退样式。
+outline_button_text: true
 outline_dialog_bubble: false
 
 # 菜单与圆形按钮
 menu_style: circular
-circular_button_mode: default
+circular_button_mode: image
 circular_btn_select: resource/button/select.png
 circular_btn_quit: resource/button/quit.png
 circular_btn_off: resource/button/off.png

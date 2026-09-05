@@ -164,16 +164,18 @@ loops:
 
 ## 界面风格与自定义
 
-维维美主题使用银白背景、炭黑菜单、深红主操作和少量琥珀色临期提示。窗口标题区使用项目自带的角色图，正文保持常规字重；周末维持深红色，选中日期使用白字。
+菜单保留项目原来的图片和文字描边。待办使用银白背景，未完成事项以半透明红色背景与边框强调，完成事项保留灰色底和删除线。窗口标题区使用项目自带的角色图，正文保持常规字重；周末维持深红色，选中日期使用白字。月份下拉菜单和年份输入框均使用白底深色文字。
+
+日历选择器预览：[月份下拉](images/vivi-calendar-months.png)、[年份输入](images/vivi-calendar-year.png)。
 
 `config/dialog_style.yaml` 的常用配置：
 
 | 字段 | 默认值 | 作用 |
 | --- | --- | --- |
 | `menu_style` | `circular` | `circular` 为环形菜单，`list` 为列表菜单 |
-| `circular_button_mode` | `default` | 统一主题矢量按钮；`image` 恢复原始贴图按钮 |
+| `circular_button_mode` | `image` | 默认使用原始图片；`default` 可选矢量按钮 |
 | `circular_btn_select/quit/off` | 原资源路径 | 图片模式所用素材 |
-| `outline_button_text` | `false` | 图片模式的文字描边 |
+| `outline_button_text` | `true` | 保留图片菜单原有的文字描边 |
 | `outline_dialog_bubble` | `false` | 对话卡片的加深边框 |
 
 截图和数值输入窗口使用统一卡片，不再从旧背景图片拉伸生成窗口。历史配置中的 `background`、`btn_*_normal/hover/pressed` 和 `outline_dialog_text` 不再参与工具窗口排版。

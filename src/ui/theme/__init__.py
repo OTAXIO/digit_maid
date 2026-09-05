@@ -35,6 +35,12 @@ class Palette:
 P = Palette()
 
 
+def translucent_color(color, alpha):
+    """从公共色板派生半透明 QSS 颜色，换主题色时无需重复修改 RGB。"""
+    channels = [int(color[index:index + 2], 16) for index in (1, 3, 5)]
+    return f"rgba({channels[0]}, {channels[1]}, {channels[2]}, {alpha})"
+
+
 def default_ui_font_family():
     if sys.platform == "darwin":
         return "PingFang SC"

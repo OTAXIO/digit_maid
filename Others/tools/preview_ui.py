@@ -17,7 +17,8 @@ sys.path.insert(0, str(ROOT))
 
 from PyQt6.QtCore import QDate, Qt, QPoint, QCoreApplication, QEvent
 from PyQt6.QtGui import QFontDatabase, QFont, QPixmap, QPainter, QColor
-from PyQt6.QtWidgets import QApplication, QLabel
+from PyQt6.QtWidgets import QApplication, QLabel, QToolButton, QSpinBox
+from PyQt6.QtTest import QTest
 
 from src.ui.theme import P, default_ui_font_family
 from src.ui.todo_panel import TodoPanel
@@ -61,6 +62,15 @@ def main():
          patch("src.ui.todo_panel.save_todo_items_by_date", return_value=True):
         panel = TodoPanel()
         capture(panel, "todo")
+        month_button = panel.calendar.findChild(QToolButton, "qt_calendar_monthbutton")
+        month_menu = month_button.menu()
+        month_menu.popup(month_button.mapToGlobal(QPoint(0, month_button.height())))
+        capture(month_menu, "calendar-months")
+        month_menu.hide()
+        panel.calendar.findChild(QToolButton, "qt_calendar_yearbutton").click()
+        capture(panel, "calendar-year")
+        year_editor = panel.calendar.findChild(QSpinBox, "qt_calendar_yearedit")
+        QTest.keyClick(year_editor, Qt.Key.Key_Escape)
         panel._on_today_item_selected(panel.today_list.item(1))
         capture(panel, "editor")
         panel.complete_btn.click()

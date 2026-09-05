@@ -2,9 +2,10 @@
 
 from datetime import date
 from PyQt6.QtCore import QDate, Qt
-from PyQt6.QtGui import QColor, QTextCharFormat, QIcon
-from PyQt6.QtWidgets import QCalendarWidget, QToolButton
+from PyQt6.QtGui import QColor, QTextCharFormat, QIcon, QPalette
+from PyQt6.QtWidgets import QCalendarWidget, QToolButton, QSpinBox
 from src.ui.theme import P
+from src.ui.theme.styles import CALENDAR_MONTH_MENU, CALENDAR_YEAR_EDITOR
 
 
 class TodoCalendar(QCalendarWidget):
@@ -18,6 +19,24 @@ class TodoCalendar(QCalendarWidget):
                 button.setIcon(QIcon())
                 button.setArrowType(Qt.ArrowType.NoArrow)
                 button.setText(text)
+
+        # 月份使用独立 QMenu，年份使用内嵌 QSpinBox；它们不会完整继承
+        # 日历网格的背景。显式设置两者，避免系统深色主题造成黑底深色字。
+        month_button = self.findChild(QToolButton, "qt_calendar_monthbutton")
+        year_editor = self.findChild(QSpinBox, "qt_calendar_yearedit")
+        month_menu = month_button.menu() if month_button is not None else None
+        for widget, style in ((month_menu, CALENDAR_MONTH_MENU), (year_editor, CALENDAR_YEAR_EDITOR)):
+            if widget is None:
+                continue
+            palette = widget.palette()
+            for role in (QPalette.ColorRole.Window, QPalette.ColorRole.Base, QPalette.ColorRole.Button):
+                palette.setColor(role, QColor(P.white))
+            for role in (QPalette.ColorRole.WindowText, QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
+                palette.setColor(role, QColor(P.ink))
+            palette.setColor(QPalette.ColorRole.Highlight, QColor(P.accent_soft))
+            palette.setColor(QPalette.ColorRole.HighlightedText, QColor(P.ink))
+            widget.setPalette(palette)
+            widget.setStyleSheet(style)
 
     def refresh_marks(self, items_by_date):
         for marked_date in self._marked_dates:
