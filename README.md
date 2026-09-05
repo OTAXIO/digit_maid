@@ -1,258 +1,64 @@
-# Digit Maid（数字女仆）
+# Digit Maid · 维维美桌面伴侣
 
-Digit Maid 是一个基于 PyQt6 的跨平台桌面伴侣。它以无边框透明窗口显示桌宠，并提供环形菜单、应用启动、截图、待办、键盘移动、开机自启动和 Codex 状态查看等功能。
+基于 PyQt6 的跨平台桌宠，沿用明日方舟维什戴尔愚人节皮肤素材。统一的银白、炭黑与深红界面，把桌宠互动、工具操作和每日待办收在一起。
 
-## 功能概览
+![桌宠菜单与对话预览](Others/docs/images/vivi-desktop.png)
 
-- 透明桌宠窗口：拖拽、缩放、置顶、贴边隐藏和多种动作动画。
-- 环形/列表菜单：分页、多级子菜单和屏幕边缘避让。
-- 待办面板：Apple 风格卡片排版、按日期保存、DDL 排序、日历标记、分页及行内编辑。
-- DDL 提醒：临期时唤回桌宠并锁定在桌面，每 10 分钟显示不会自动消失的强调提醒。
-- 配置驱动菜单：APP 与 TOOL 独立分区、均支持多层分类，并只允许启动 `config/menu.yaml` 中明确配置的程序。
-- 屏幕截图：保存到桌面、图片目录或用户选择的位置。
-- 行为模式：缓降、直落、不下坠，以及默认、运动、懒惰三种待机模式。
-- 系统集成：Windows、macOS、Linux 开机自启动与跨平台打包。
-- Codex 状态：读取本地状态桥接文件或查看正在运行的 Codex 进程。
+## 开始使用
 
-## 环境要求
-
-- Python 3.9 或更高版本
-- Windows 10/11、macOS 或主流 Linux 桌面环境
-
-安装依赖：
+需要 Python 3.9+ 和桌面图形环境。在仓库根目录运行：
 
 ```bash
 python -m pip install -r requirements.txt
-```
-
-当前唯一运行依赖是 PyQt6。项目内置了只支持映射、标量和标量列表的受限 YAML 解析器，因此不再要求安装 PyYAML，也不会执行 YAML 标签、引用或 Python 对象构造器。
-
-## 运行
-
-推荐从仓库根目录以模块方式启动：
-
-```bash
 python -m src
 ```
 
-为兼容旧脚本和 PyInstaller，也可以运行：
+右键桌宠打开菜单：APP 启动应用，TOOL 提供截图和键盘控制，「待办」管理每日计划，「设置」调整缩放和行为。程序通过共享内存锁保持单实例。
 
-```bash
-python src/core/run.py
-```
+- [完整中文使用手册](Others/docs/USER_GUIDE.md)：安装、操作、配置、备份与故障排查。
+- [安装包下载指南](Others/docs/DOWNLOAD_GUIDE.md)：Windows、macOS 和 Linux 的安装方式。
+- [开发维护指南](Others/docs/ARCHITECTURE.md)：目录职责、扩展方法、中文批注约定、测试与打包。
 
-程序使用共享内存锁限制为单实例；如果 Digit Maid 已在运行，第二次启动会直接退出。
+## 待办手账
 
-安装包的下载与使用说明见 [Others/docs/DOWNLOAD_GUIDE.md](./Others/docs/DOWNLOAD_GUIDE.md)。
+任务卡片区分时间、正文与完成状态。点击后进入整页编辑，底部提供删除和完成／未完成切换；完成后保留任务并锁定正文。编辑会自动保存，失败时显示错误并保留输入。
 
-## 使用说明
+![待办手账](Others/docs/images/vivi-todo.png)
 
-### 菜单与移动
+临近 DDL 会唤回桌宠并禁止侧栏隐藏，提醒只提供「标记已完成」和「p 分钟后提醒」。阈值集中在根目录 [config/todo.yaml](config/todo.yaml)，默认 n=2 小时、m=1 小时、p=30 分钟；具体行为和打包后的配置位置见使用手册。
 
-- 右键桌宠打开菜单。
-- 在 `TOOL -> 系统工具 -> 控制移动` 中进入键盘控制。
-- `A/D` 或 `←/→` 水平移动，`W/↑/空格` 上升，`S/↓` 快速下落，`Esc` 退出控制。
-- 在设置中可以修改桌宠大小、下落模式、待机模式、置顶状态和开机自启动。
-
-### 待办面板
-
-- 从菜单选择“待办”。
-- 输入 `HH:MM` 和内容后按回车或上传按钮新增任务。
-- 点击未完成任务可行内编辑；选中任务后可标记完成或删除。
-- 日历支持按日查看、月份汇总以及“回到今天”。
-- 进入临期保护时间后，桌宠会从侧栏回到桌面，并在截止前禁止再次贴边隐藏。
-- 进入提醒时间后，每 10 分钟弹出临期待办；弹窗只提供“标记已完成”和“p 分钟后提醒”，不会自行关闭。标记完成会保留事项并写入 `completed: true`，已完成事项不再参与提醒。
-- 每日任务中可用事项旁的按钮切换“完成/未完成”；已完成事项以弱化底色、灰红文字和删除线显示，只能删除或恢复为未完成，不能再修改原内容。
-
-待办保存在系统应用数据目录下的 `todo_items.json`。写入采用临时文件加原子替换，异常中断不会覆盖原文件；损坏或超大文件也会保留，方便手动恢复。
-
-### Codex 状态桥接
-
-默认状态文件为系统应用数据目录下的 `codex_status.json`。也可在启动 Digit Maid 前设置：
-
-Codex 状态气泡会显示约 8 秒，普通操作提示仍保持约 2 秒，便于阅读较长的任务状态。
-
-```bash
-# PowerShell
-$env:DIGITMAID_CODEX_STATUS_PATH = "D:\path\to\codex_status.json"
-
-# bash/zsh
-export DIGITMAID_CODEX_STATUS_PATH="/path/to/codex_status.json"
-```
-
-状态文件示例：
-
-```json
-{
-  "task": "更新桌宠",
-  "status": "运行中",
-  "step": "执行测试",
-  "detail": "安全检查已完成",
-  "updated_at": "2026-08-31 12:00:00"
-}
-```
-
-## 配置
-
-所有可编辑配置集中在 `config/`：
-
-- `menu.yaml`：定义 APP/TOOL 分类、内置工具动作和跨平台启动路径。
-- `maid_animations.yaml`：动作素材、循环方式、下落和待机默认值。
-- `dialog_style.yaml`：菜单、按钮和对话气泡的样式素材。
-- `todo.yaml`：DDL 桌面保护时间 `n`、弹窗提醒时间 `m` 和稍后提醒分钟数 `p`。
-
-`config/todo.yaml` 位于仓库根目录的配置文件夹，并会随发布包一起打包。默认值为：提前 2 小时禁止贴边隐藏（`n`）、提前 1 小时开始弹窗（`m`）、点击稍后提醒后等待 30 分钟（`p`）。修改后重启 Digit Maid 生效；当天已经超时但尚未完成的事项仍会提醒，到午夜自动退出临期范围。
-
-### 管理 APP 与 TOOL
-
-编辑 `config/menu.yaml`：
-
-```yaml
-menus:
-  APP:
-    开发:
-      我的编辑器:
-        launch:
-          - 'C:\Program Files\Editor\editor.exe'
-          - /Applications/Editor.app
-          - editor
-    GAME:
-      Steam:
-        launch:
-          - 'C:\Program Files (x86)\Steam\steam.exe'
-          - /Applications/Steam.app
-          - steam
-
-  TOOL:
-    系统工具:
-      截图:
-        action: screenshot
-      控制移动:
-        action: keyboard_control
-    网络:
-      VPN:
-        launch:
-          - 'D:\Tools\VPN\vpn.exe'
-```
-
-`APP` 和 `TOOL` 是完全独立的菜单树，普通映射表示分类，最多嵌套 4 层：
-
-- `launch` 表示外部启动项，既可用于 APP，也可用于 VPN 等 TOOL；其中的路径会进入统一安全白名单。
-- `action` 表示内置工具，目前支持 `screenshot`、`keyboard_control` 和 `codex_status`，只能放在 TOOL。
-- 所有 `launch` 项的名称必须全局唯一，避免不同分类指向不明确的启动目标。
-- YAML 列表的短横线后必须保留一个空格，例如 `- D:\Tools\app.exe`；格式错误会在桌宠对话中显示具体原因。
-
-上例分别生成 `APP -> 开发 -> 我的编辑器`、`APP -> GAME -> Steam`、`TOOL -> 系统工具` 和 `TOOL -> 网络 -> VPN`。
-
-程序不会把未配置的文本当作命令执行，候选路径也不会通过 shell 解释。列表菜单和圆形菜单都在每次打开时重新读取配置，修改后无需改代码或重启程序。
-
-### 修改动画
-
-动画素材必须位于仓库的 `resource/` 目录内，动作文件必须为不含路径分隔符的 `.gif` 文件名：
-
-```yaml
-base_dir: resource/wisdel/皮肤素材/可用素材
-fall_mode: smooth
-idle_mode: default
-
-actions:
-  idle: relax.gif
-  special: special0.gif, special1.gif
-
-loops:
-  idle: true
-  special: false
-```
-
-用户在界面中修改的下落、待机和缩放设置会通过 `QSettings` 保存，并优先于配置文件默认值。
-
-## 项目结构
+## 目录导航
 
 ```text
-dmaid/
-├── config/                    # 经安全校验的 YAML 配置
-├── resource/                  # GIF、图片和按钮素材
-├── Others/                    # 打包、平台适配、下载文档与展示素材
-│   ├── docs/                  # 安装说明与 Markdown 图片
-│   └── packaging/             # Windows、macOS、Linux 构建文件
-├── src/
-│   ├── ai/                    # 本地对话占位实现
-│   ├── config/                # YAML 加载和配置结构校验
-│   ├── core/                  # 启动、运行时路径、原子 JSON 存储
-│   ├── function/              # 待办、自启动、Codex 等功能及兼容入口
-│   ├── input/                 # 环形菜单与输入对话框
-│   ├── menu/                  # 菜单领域模型、列表/圆形菜单构建器
-│   ├── services/              # 应用启动、截图等系统边界服务
-│   ├── ui/                    # 桌宠窗口、动作控制、对话和待办 UI
-│   └── __main__.py            # `python -m src` 入口
-├── tests/                     # 配置、安全边界和持久化测试
-└── requirements.txt
+config/              可编辑 YAML 配置
+resource/            桌宠运行时动画和图片
+src/
+  core/              启动、路径、数值边界、JSON 原子存储
+  config/            受限 YAML 解析与结构校验
+  domain/            待办规范化、排序与 DDL 时间窗口
+  menu/              菜单模型、构建器、屏幕边界排版
+  services/          应用启动与截图系统服务
+  function/          待办存储、自启动、Codex 状态及兼容入口
+  input/             输入对话框与菜单交互
+  ui/                桌宠、对话、待办与提醒
+    theme/           统一色板、QSS、窗口骨架与公共控件
+Others/
+  docs/              手册与界面实拍
+  packaging/         Windows / macOS / Linux 打包与适配
+  tools/             文档用界面预览工具
+tests/               业务、持久化、布局与交互回归
 ```
 
-入口保持轻量：`src/core/run.py` 只负责脚本兼容，Qt 初始化和单实例生命周期位于 `src/core/application.py`，路径解析位于 `src/core/paths.py`。配置通用读取、菜单校验、菜单领域模型和两种菜单渲染器相互独立；UI 不再自行解析 YAML，也不直接负责系统进程启动。
-
-## 开发与测试
-
-运行全部测试：
+## 开发验证
 
 ```bash
 python -m unittest discover -s tests -v
+python -m compileall -q src tests Others/tools
+python Others/tools/preview_ui.py
 ```
 
-检查所有 Python 文件能否编译：
+预览工具只使用内存样例，不读取或修改个人待办；输出放在 `Others/docs/images/`。Linux CI 可设置 `QT_QPA_PLATFORM=offscreen`。
 
-```bash
-python -m compileall -q src tests
-```
+运行依赖只有 PyQt6。YAML 使用受限解析器，外部启动项必须在菜单白名单内；待办 JSON 有容量限制，并以原子替换方式保存。更多边界说明见维护指南。
 
-在无图形界面的 Linux CI 中使用：
-
-```bash
-QT_QPA_PLATFORM=offscreen python -m unittest discover -s tests -v
-```
-
-GitHub Actions 会在 `main`、`OTAXIO` 推送及拉取请求上运行编译和测试。带仓库写权限与 API 密钥的 AI 工作流只允许仓库所有者、成员或协作者触发，并设置了运行超时。
-
-## 安全设计
-
-- APP/TOOL 外部启动项共用配置白名单、精确名称匹配、参数列表和 `shell=False`。
-- YAML 使用项目内置的受限解析器，拒绝标签、引用、复杂值和对象构造，并限制文件大小、应用数量、路径和字段类型。
-- 动画路径被限制在 `resource/` 下，阻止通过 `../` 读取任意位置的素材。
-- 待办和 Codex 状态 JSON 在解析前检查大小；待办通过原子替换写入。
-- GitHub AI 工作流拒绝外部用户通过 Issue 或 PR 评论触发密钥作业。
-
-配置文件仍属于本地可信管理面：在 `menu.yaml` 中增加 `launch` 等同于显式允许 Digit Maid 启动其中列出的程序。
-
-## 打包
-
-Windows：
-
-```bat
-Others\packaging\windows\build_exe.bat
-```
-
-macOS：
-
-```bash
-chmod +x Others/packaging/macos/build_dmg.sh
-Others/packaging/macos/build_dmg.sh
-```
-
-Linux DEB/RPM：
-
-```bash
-chmod +x Others/packaging/linux/build_linux_packages.sh
-Others/packaging/linux/build_linux_packages.sh
-```
-
-三个 PyInstaller spec 都会把 `resource/` 和 `config/` 一并打包。发布工作流支持 Windows x86_64、macOS Apple Silicon 和 Linux x86_64。
-
-## 本次重构摘要
-
-- 将 APP 与 TOOL 统一迁移到 `menu.yaml`，支持独立、多层、热加载的菜单树。
-- 拆分配置基础设施、菜单领域模型、菜单校验和列表/圆形菜单渲染器。
-- 修复已提交到动画配置中的 Git 冲突标记。
-- 拆分启动、路径、配置、存储和系统服务层。
-- 阻止未配置应用造成的任意命令执行入口。
-- 加固 YAML/JSON 读取、截图写入和 GitHub AI 工作流。
-- 增加自动化测试与 CI，并同步更新跨平台打包配置。
+角色与游戏相关美术权益归原权利方所有。本项目及预览图为非官方二次创作，不代表官方产品。

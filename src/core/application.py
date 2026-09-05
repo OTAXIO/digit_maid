@@ -12,6 +12,7 @@ from PyQt6.QtWidgets import QApplication
 
 from src.core.paths import resource_path, runtime_root
 from src.ui.maid_window import MaidWindow
+from src.ui.theme import default_ui_font_family
 
 
 SINGLE_INSTANCE_KEY = "DigitMaid.Singleton"
@@ -27,14 +28,11 @@ def acquire_single_instance_lock() -> Optional[QSharedMemory]:
     return lock
 
 
-def default_ui_font_family() -> str:
-    return "PingFang SC" if sys.platform == "darwin" else "Microsoft YaHei"
-
-
 def create_application(argv: Optional[Sequence[str]] = None) -> QApplication:
     app = QApplication(list(argv) if argv is not None else sys.argv)
     ui_font = QFont(default_ui_font_family(), 10)
-    ui_font.setBold(True)
+    # 正文使用常规字重，标题与操作按钮由主题显式强调。
+    ui_font.setBold(False)
     app.setFont(ui_font)
 
     icon = resource_path("wisdel", "皮肤素材", "维什戴尔大人.png")

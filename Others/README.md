@@ -6,6 +6,9 @@
 - `packaging/macos/`：macOS app/DMG 的 spec 与构建脚本。
 - `packaging/linux/`：Linux bundle、DEB、RPM 的 spec 与构建脚本。
 - `docs/`：安装说明及 Markdown 展示图片。
+- `tools/`：仅用于手册的界面预览工具，不参与桌宠运行。
+
+阅读入口：[中文使用手册](docs/USER_GUIDE.md)、[开发维护指南](docs/ARCHITECTURE.md)。
 
 所有构建脚本都会先定位并切换到仓库根目录，因此既可以从根目录调用，也可以在脚本所在目录调用。运行时的 `src/`、`config/` 和 `resource/` 路径没有改变；三个 spec 仍将完整的 `config/` 与 `resource/` 打入发布包。
 

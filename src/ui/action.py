@@ -3,7 +3,7 @@ from PyQt6.QtGui import QAction, QActionGroup
 from PyQt6.QtCore import QTimer, QObject, QEvent, QPoint, QSettings, Qt
 import os
 from src.config import ConfigError, load_menu_config
-from src.core.paths import config_path, runtime_root
+from src.core.paths import config_path
 from src.core.numeric import bounded_float
 from src.function import startup, codex_status
 from src.menu import MenuConfig
@@ -12,7 +12,8 @@ from src.menu.qt_builder import populate_qmenu
 from src.services import app_launcher as open_app
 from src.services import screenshot as screen_shot
 from src.input import choice_dialog
-from src.input.choice_dialog import load_dialog_theme
+from src.ui.theme import P, load_dialog_theme
+from src.ui.theme.styles import list_menu_style
 from src.input.circular_menu import CircularMenuWidget
 from .menu_controller import OptionMenuController
 from .todo_panel import TodoPanel
@@ -428,64 +429,7 @@ class MaidActions:
             if always_show_attr is not None:
                 menu.setAttribute(always_show_attr, True)
         scale = self._menu_scale_from_maid_scale(getattr(self.parent, "user_scale", 1.0))
-        border_px = max(1, int(2 * scale))
-        radius_px = max(6, int(10 * scale))
-        menu_pad_px = max(2, int(5 * scale))
-        item_vpad_px = max(2, int(5 * scale))
-        item_hpad_px = max(8, int(20 * scale))
-        item_radius_px = max(4, int(5 * scale))
-        sep_h_px = max(1, int(2 * scale))
-        sep_margin_v_px = max(2, int(5 * scale))
-        sep_margin_h_px = max(4, int(10 * scale))
-        font_px = max(12, int(14 * scale))
-
-        menu_bg_css = "background-color: rgba(250, 250, 250, 220);"
-
-        # 尝试应用 dialog_style.yaml 中的背景
-        bg_path = theme.get("background", "")
-        if bg_path:
-            bg_path = os.path.normpath(bg_path.replace("\\", "/"))
-            root_dir = str(runtime_root())
-            if not os.path.isabs(bg_path):
-                bg_path = os.path.join(root_dir, bg_path)
-            bg_path = os.path.normpath(bg_path)
-            
-            if os.path.exists(bg_path):
-                bg_url = bg_path.replace("\\", "/")
-                # 为 QMenu 及其子菜单设置统一样式
-                menu_bg_css = (
-                    f'background-image: url("{bg_url}");'
-                    "background-repeat: no-repeat;"
-                    "background-position: left top;"
-                    "background-color: rgba(250, 250, 250, 220);"
-                )
-
-        menu_qss = f"""
-            QMenu {{
-                {menu_bg_css}
-                border: {border_px}px solid #ff3b30;
-                border-radius: {radius_px}px;
-                padding: {menu_pad_px}px;
-            }}
-            QMenu::item {{
-                padding: {item_vpad_px}px {item_hpad_px}px {item_vpad_px}px {item_hpad_px}px;
-                color: #333;
-                font-weight: bold;
-                font-size: {font_px}px;
-                border-radius: {item_radius_px}px;
-            }}
-            QMenu::item:selected {{
-                background-color: #ff3b30;
-                color: white;
-            }}
-            QMenu::separator {{
-                height: {sep_h_px}px;
-                background: #ff3b30;
-                margin: {sep_margin_v_px}px {sep_margin_h_px}px {sep_margin_v_px}px {sep_margin_h_px}px;
-            }}
-        """
-        # 设置当前菜单和子菜单的样式
-        menu.setStyleSheet(menu_qss)
+        menu.setStyleSheet(list_menu_style(scale))
 
         menu_config = self._read_menu_config()
         app_menu = menu.addMenu("APP")
@@ -668,7 +612,7 @@ class MaidActions:
         fall_mode_sub_items = [
             {
                 'label': label,
-                'text_color': "#e32e2e" if mode == current_mode else 'white',
+                'text_color': P.accent if mode == current_mode else 'white',
                 'action': lambda m=mode: self._set_fall_mode(m)
             }
             for mode, label in self.FALL_MODE_LABELS.items()
@@ -678,7 +622,7 @@ class MaidActions:
         idle_mode_sub_items = [
             {
                 'label': label,
-                'text_color': "#e32e2e" if mode == current_idle_mode else 'white',
+                'text_color': P.accent if mode == current_idle_mode else 'white',
                 'action': lambda m=mode: self._set_idle_mode(m)
             }
             for mode, label in self.IDLE_MODE_LABELS.items()

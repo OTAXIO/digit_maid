@@ -1,3 +1,5 @@
+"""待办文件存储：兼容旧格式、约束容量并原子替换，失败时保留原文件。"""
+
 import os
 from datetime import date, timedelta
 
@@ -6,80 +8,20 @@ from PyQt6.QtCore import QStandardPaths
 from src.core.json_store import JsonStoreError, atomic_write_json, read_json_file
 
 
+from src.domain.todo import (
+    MAX_TODO_TEXT_CHARS, MAX_TODOS_PER_DATE, MAX_TODO_DATES, MAX_TOTAL_TODOS,
+    # 兼容旧的私有名称；统一规则供 UI、读盘和写盘共同使用。
+    normalize_ddl as _normalize_ddl_time,
+    normalize_task as _normalize_task_item,
+    task_sort_key as _task_sort_key,
+)
+
+
 MAX_TODO_FILE_BYTES = 2 * 1024 * 1024
-MAX_TODO_TEXT_CHARS = 500
-MAX_TODOS_PER_DATE = 500
-MAX_TODO_DATES = 3660
-MAX_TOTAL_TODOS = 5000
 
 
 class TodoDataLimitError(ValueError):
-    """Raised when an attempted save exceeds the supported todo data limits."""
-
-
-def _normalize_ddl_time(raw_ddl):
-    if raw_ddl is None:
-        return ""
-
-    text = str(raw_ddl).strip().replace("：", ":")
-    if not text:
-        return ""
-
-    parts = text.split(":")
-    if len(parts) != 2:
-        return ""
-
-    try:
-        hour = int(parts[0])
-        minute = int(parts[1])
-    except ValueError:
-        return ""
-
-    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
-        return ""
-
-    return f"{hour:02d}:{minute:02d}"
-
-
-def _normalize_task_item(item):
-    if isinstance(item, dict):
-        text = str(item.get("text", "")).strip()
-        ddl = _normalize_ddl_time(item.get("ddl", ""))
-        completed = item.get("completed") is True
-    else:
-        raw_text = str(item).strip().replace("：", ":")
-        ddl = ""
-        text = raw_text
-        completed = False
-
-        segments = raw_text.split(None, 1)
-        if segments and ":" in segments[0]:
-            parsed_ddl = _normalize_ddl_time(segments[0])
-            if parsed_ddl:
-                ddl = parsed_ddl
-                text = segments[1].strip() if len(segments) > 1 else ""
-
-    if (
-        not text
-        or len(text) > MAX_TODO_TEXT_CHARS
-        or any(ord(character) < 32 for character in text)
-    ):
-        return None
-
-    return {"ddl": ddl, "text": text, "completed": completed}
-
-
-def _task_sort_key(task):
-    completion_rank = 1 if task.get("completed") is True else 0
-    ddl = str(task.get("ddl", "")).strip()
-    if ddl:
-        try:
-            hour_str, minute_str = ddl.split(":", 1)
-            minute_of_day = int(hour_str) * 60 + int(minute_str)
-            return (completion_rank, 0, minute_of_day, task.get("text", ""))
-        except ValueError:
-            pass
-    return (completion_rank, 1, 24 * 60, task.get("text", ""))
+    """待保存内容超出容量或结构限制。"""
 
 
 def _get_app_data_dir():

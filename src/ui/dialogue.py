@@ -1,276 +1,142 @@
+"""跟随桌宠的轻量对话卡片。负责排版与生命周期，不参与桌宠行为判断。"""
+
 import html
 import sys
 
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QApplication
+from PyQt6 import sip
 from PyQt6.QtCore import Qt, QTimer, QRectF
-from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath, QFont, QTextDocument
+from PyQt6.QtGui import QPainter, QColor, QPen, QPainterPath, QFont
+from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QScrollArea, QApplication
 
-from src.input.choice_dialog import load_dialog_theme
 from src.core.numeric import bounded_float, bounded_int
+from src.ui.theme import P, default_ui_font_family, load_dialog_theme
+from src.ui.theme.styles import BASE
+from src.ui.theme.widgets import keep_on_screen
 
 
-def _default_ui_font_family():
-    if sys.platform == "darwin":
-        return "PingFang SC"
-    return "Microsoft YaHei"
-
-
-UI_FONT_FAMILY = _default_ui_font_family()
 DEFAULT_MESSAGE_DURATION_MS = 2000
 
 
-class OutlineLabel(QLabel):
-    def __init__(self, text="", enable_outline=True, parent=None):
-        super().__init__(text, parent)
-        self.enable_outline = enable_outline
-
-    def paintEvent(self, event):
-        if not self.enable_outline:
-            super().paintEvent(event)
-            return
-            
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
-        
-        doc = QTextDocument()
-        doc.setDocumentMargin(0)
-        doc.setDefaultFont(self.font())
-        doc.setTextWidth(self.width())
-        
-        # 将原有的 HTML 文本重新包裹为黑色，来作为底本渲染描边边缘
-        text = self.text()
-        doc.setHtml(f"<div style='color: black;'>{text}</div>")
-        
-        for dx in range(-2, 3):
-            for dy in range(-2, 3):
-                if dx == 0 and dy == 0:
-                    continue
-                painter.save()
-                painter.translate(dx, dy)
-                doc.drawContents(painter)
-                painter.restore()
-                
-        # 还原白色作为最顶层的内容
-        doc.setHtml(f"<div style='color: white;'>{text}</div>")
-        doc.drawContents(painter)
-
 class SpeechBubble(QWidget):
     def __init__(self, text, target_widget, duration_ms=DEFAULT_MESSAGE_DURATION_MS):
-        super().__init__(None) # 无父级，作为独立顶层窗口
+        super().__init__(None)
         self.target = target_widget
-        self.text = text
-        
+        self.ui_scale = 0.0
         self.theme = load_dialog_theme()
-        self.outline_dialog_text = str(self.theme.get("outline_dialog_text", "false")).lower() == "true"
-        self.outline_dialog_bubble = str(self.theme.get("outline_dialog_bubble", "false")).lower() == "true"
-        self.use_image_buttons = self.theme.get("circular_button_mode", "default").lower() == "image"
-        self.ui_scale = 1.0
-        self.menu_radius = 120
-        self.arrow_height = 20
-        self.corner_radius = 25
-        self.arrow_start_x = 20
-        self.arrow_tip_dx = 10
-        self.arrow_end_dx = 15
         self.arrow_side = "left"
-        
-        # macOS 下避免始终置顶，防止影响切换到其他应用。
+        self.setWindowTitle("维维美 · 对话")
         flags = Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool
         if sys.platform != "darwin":
             flags |= Qt.WindowType.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        
-        # 布局与内容
-        layout = QVBoxLayout()
-        self.label = OutlineLabel(text, enable_outline=self.outline_dialog_text)
-        self.label.setWordWrap(True)
-        # 支持 HTML 格式 (比如标题加粗)
-        self.label.setTextFormat(Qt.TextFormat.RichText) 
-        init_font = QFont(UI_FONT_FAMILY, 10)
-        init_font.setBold(True)
-        self.label.setFont(init_font)
-        
-        if self.outline_dialog_text:
-            self.label.setStyleSheet("color: transparent;") # 隐藏自带的字，只保留自定义边框文字
-        else:
-            self.label.setStyleSheet("color: white;")
-            
-        layout.addWidget(self.label)
-        self.setLayout(layout)
-        
-        # 设置边距，底部留出空间给箭头
-        # (left, top, right, bottom)
-        layout.setContentsMargins(15, 15, 15, 30) 
-        
-        # 先按当前缩放同步样式与位置
-        self._sync_with_target(force=True)
+        self.setStyleSheet(BASE)
 
-        # 跟随桌宠与菜单实时更新位置/尺寸
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 15, 18, 29)
+        layout.setSpacing(8)
+        caption = QLabel("维维美  /  VIVI", self)
+        caption.setProperty("role", "eyebrow")
+        layout.addWidget(caption)
+        self.scroll = QScrollArea(self)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { border: none; background: transparent; }")
+        self.label = QLabel(text, self.scroll)
+        self.label.setTextFormat(Qt.TextFormat.RichText)
+        self.label.setWordWrap(True)
+        self.label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.scroll.setWidget(self.label)
+        layout.addWidget(self.scroll, 1)
+
         self.follow_timer = QTimer(self)
         self.follow_timer.timeout.connect(self._sync_with_target)
-        self.follow_timer.start(33)
-        
-        # 根据消息类型使用不同展示时长。
+        self.follow_timer.start(80)
         self.timer = QTimer(self)
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self.close)
-        duration_ms = bounded_int(
-            duration_ms,
-            default=DEFAULT_MESSAGE_DURATION_MS,
-            minimum=1000,
-            maximum=60000,
-        )
-        self.timer.start(duration_ms)
+        self.timer.start(bounded_int(duration_ms, default=DEFAULT_MESSAGE_DURATION_MS,
+                                     minimum=1000, maximum=60000))
+        self._sync_with_target(force=True)
 
     @staticmethod
     def _menu_scale_from_maid_scale(maid_scale):
-        scale = bounded_float(maid_scale, default=1.0, minimum=0.2, maximum=5.0)
-
-        if scale >= 1.0:
-            mapped = 1.0 + (scale - 1.0) * 0.75
-        else:
-            mapped = scale
-        return bounded_float(mapped, default=1.0, minimum=0.4, maximum=4.0)
-
-    def _resolve_ui_scale(self):
-        if self.target is None:
-            return 1.0
-        return self._menu_scale_from_maid_scale(getattr(self.target, "user_scale", 1.0))
-
-    def _compute_menu_radius(self, ui_scale):
-        btn_half = max(14, int((80 if self.use_image_buttons else 70) * ui_scale / 2))
-        radius = max(48, int(120 * ui_scale))
-
-        return radius
-
-    def _apply_scaled_style(self, ui_scale, force=False):
-        ui_scale = bounded_float(ui_scale, default=1.0, minimum=0.4, maximum=4.0)
-        if not force and abs(ui_scale - self.ui_scale) <= 1e-6:
-            return False
-
-        self.ui_scale = ui_scale
-
-        font_px = max(6, int(round(10 * self.ui_scale)))
-        scaled_font = QFont(UI_FONT_FAMILY, font_px)
-        scaled_font.setBold(True)
-        self.label.setFont(scaled_font)
-
-        max_width = max(100, int(round(250 * self.ui_scale)))
-        self.setMaximumWidth(max_width)
-
-        margin_lr = max(6, int(round(15 * self.ui_scale)))
-        margin_top = margin_lr
-        margin_bottom = max(12, int(round(30 * self.ui_scale)))
-        self.layout().setContentsMargins(margin_lr, margin_top, margin_lr, margin_bottom)
-
-        self.arrow_height = max(12, int(round(20 * self.ui_scale)))
-        self.corner_radius = max(14, int(round(25 * self.ui_scale)))
-        self.arrow_start_x = max(10, int(round(20 * self.ui_scale)))
-        self.arrow_tip_dx = max(6, int(round(10 * self.ui_scale)))
-        self.arrow_end_dx = max(8, int(round(15 * self.ui_scale)))
-
-        self.adjustSize()
-        self.update()
-        return True
+        # 对话可读性独立于极端桌宠缩放，避免文字缩到不可读或遮满屏幕。
+        return bounded_float(maid_scale, default=1.0, minimum=0.9, maximum=1.4)
 
     def _resolve_menu_center(self):
-        if self.target is None:
+        if self.target is None or sip.isdeleted(self.target):
             return None
-
         actions = getattr(self.target, "maid_actions", None)
         if actions is not None and hasattr(actions, "_get_circular_menu_center_point"):
-            try:
-                return actions._get_circular_menu_center_point()
-            except Exception:
-                pass
-
+            return actions._get_circular_menu_center_point()
         return self.target.frameGeometry().center()
 
     def _sync_with_target(self, force=False):
-        ui_scale = self._resolve_ui_scale()
-        style_changed = self._apply_scaled_style(ui_scale, force=force)
+        anchor = self._resolve_menu_center()
+        if anchor is None:
+            self.close()
+            return
+        screen = QApplication.screenAt(anchor) or self.target.screen()
+        if screen is None:
+            return
+        area = screen.availableGeometry()
+        scale = self._menu_scale_from_maid_scale(getattr(self.target, "user_scale", 1.0))
+        width = min(int(290 * scale), max(160, area.width() - 24))
+        if force or scale != self.ui_scale or width != self.width():
+            self.ui_scale = scale
+            font = QFont(default_ui_font_family())
+            font.setPixelSize(round(13 * scale))
+            self.label.setFont(font)
+            self.setFixedWidth(width)
+            self.label.setFixedWidth(width - 44)
+            content_height = self.label.heightForWidth(width - 44)
+            height = min(max(108, content_height + 78), max(108, int(area.height() * 0.48)))
+            self.setFixedHeight(height)
+            self.label.setMinimumHeight(content_height)
 
-        new_radius = self._compute_menu_radius(self.ui_scale)
-        if force or style_changed or new_radius != self.menu_radius:
-            self.menu_radius = new_radius
-
-        self.update_position()
+        # 有菜单时把气泡放到半径之外；无菜单时贴近角色头部，减少遮挡。
+        menu = getattr(getattr(self.target, "maid_actions", None), "circular_menu", None)
+        menu_visible = menu is not None and not sip.isdeleted(menu) and menu.isVisible()
+        offset = int(155 * scale) if menu_visible else max(48, self.target.width() // 3)
+        x = anchor.x() + offset
+        self.arrow_side = "left"
+        if x + self.width() > area.right():
+            x = anchor.x() - offset - self.width()
+            self.arrow_side = "right"
+        self.move(x, anchor.y() - self.height() - 12)
+        keep_on_screen(self, anchor)
+        self.update()
 
     def update_position(self):
-        if self.target:
-            anchor_point = self._resolve_menu_center()
-            if anchor_point is None:
-                return
-
-            screen = QApplication.screenAt(anchor_point)
-            if screen is None and self.target is not None:
-                screen = self.target.screen()
-            if screen is None:
-                screen = QApplication.primaryScreen()
-            screen_geo = screen.availableGeometry()
-
-            # 跟随菜单缩放半径外扩，使气泡与菜单选项保持同向联动
-            horizontal_offset = int(round(self.menu_radius * 0.45))
-            x = anchor_point.x() + horizontal_offset
-            y = anchor_point.y() - self.height() - int(round(self.menu_radius * 0.15))
-            arrow_side = "left"
-            
-            # 边界检测
-            if x + self.width() > screen_geo.right():
-                x = anchor_point.x() - self.width() - horizontal_offset
-                arrow_side = "right"
-            if x < screen_geo.left():
-                x = screen_geo.left()
-                arrow_side = "left"
-
-            if y + self.height() > screen_geo.bottom():
-                y = screen_geo.bottom() - self.height()
-            if y < screen_geo.top():
-                y = screen_geo.top()
-
-            if arrow_side != self.arrow_side:
-                self.arrow_side = arrow_side
-                self.update()
-
-            self.move(int(x), int(y))
+        self._sync_with_target()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        width = self.width()
-        height = self.height()
-        arrow_height = self.arrow_height # 底部箭头区域的高度
-        
-        # 气泡主体区域
-        rect = QRectF(0, 0, width, height - arrow_height)
-        
-        path = QPainterPath()
-        path.addRoundedRect(rect, self.corner_radius, self.corner_radius) # 增加圆角半径使其更加圆润
-        
-        # 绘制小尾巴，气泡左右翻转时同步调整方向
-        if self.arrow_side == "right":
-            arrow_start_x = width - self.arrow_start_x
-            path.moveTo(arrow_start_x, height - arrow_height)
-            path.lineTo(arrow_start_x + self.arrow_tip_dx, height)
-            path.lineTo(arrow_start_x - self.arrow_end_dx, height - arrow_height)
-        else:
-            arrow_start_x = self.arrow_start_x
-            path.moveTo(arrow_start_x, height - arrow_height)
-            path.lineTo(arrow_start_x - self.arrow_tip_dx, height)
-            path.lineTo(arrow_start_x + self.arrow_end_dx, height - arrow_height)
-        
-        # 合并路径会自动处理重叠部分
-        
-        # 使用和圆形菜单一致的深红色背景
-        painter.setBrush(QBrush(QColor("#c41c1c")))
-        if getattr(self, "outline_dialog_bubble", False):
-            # 使用黑色描边
-            painter.setPen(QPen(QColor(0, 0, 0), 3))
-        else:
-            painter.setPen(Qt.PenStyle.NoPen)
-        
-        painter.drawPath(path)
+        body = QPainterPath()
+        body.addRoundedRect(QRectF(1, 1, self.width() - 2, self.height() - 15), 16, 16)
+        tip = QPainterPath()
+        x = self.width() - 30 if self.arrow_side == "right" else 30
+        tip.moveTo(x - 7, self.height() - 16)
+        tip.lineTo(x, self.height() - 3)
+        tip.lineTo(x + 7, self.height() - 16)
+        tip.closeSubpath()
+        painter.setBrush(QColor(P.surface))
+        outline = self.theme.get("outline_dialog_bubble") == "true"
+        painter.setPen(QPen(QColor(P.charcoal if outline else P.line), 2 if outline else 1))
+        painter.drawPath(body.united(tip))
+        painter.setPen(QPen(QColor(P.accent), 2))
+        painter.drawLine(18, 31, 44, 31)
+
+    def closeEvent(self, event):
+        # 隐藏顶层窗口不会自动停止 QTimer；关闭时同时停止跟随并销毁。
+        self.follow_timer.stop()
+        self.timer.stop()
+        super().closeEvent(event)
+        self.deleteLater()
+
 
 class DialogueSystem:
     def __init__(self, parent_widget):
@@ -278,25 +144,21 @@ class DialogueSystem:
         self.current_bubble = None
 
     def show_message(self, title, content, duration_ms=DEFAULT_MESSAGE_DURATION_MS):
-        # 如果之前有气泡，先关闭旧的
-        if self.current_bubble:
-            try:
-                self.current_bubble.close()
-            except Exception:
-                pass
-        
-        # 构建显示文本，标题加粗
-        safe_title = html.escape(str(title))
-        safe_content = html.escape(str(content)).replace("\n", "<br>")
-        display_text = f"<b>{safe_title}</b><br>{safe_content}"
-        
-        self.current_bubble = SpeechBubble(display_text, self.parent, duration_ms=duration_ms)
-        self.current_bubble.show()
+        self.hide_dialogue()
+        safe_title = html.escape(str(title)[:200])
+        safe_content = html.escape(str(content)[:4096]).replace("\n", "<br>")
+        text = f'<b>{safe_title}</b><br><span style="color:{P.muted}">{safe_content}</span>'
+        bubble = SpeechBubble(text, self.parent, duration_ms=duration_ms)
+        self.current_bubble = bubble
+        bubble.destroyed.connect(lambda: self._clear_bubble(bubble))
+        bubble.show()
+
+    def _clear_bubble(self, bubble):
+        # 旧气泡延迟销毁时，不能把刚创建的新气泡引用一起清掉。
+        if self.current_bubble is bubble:
+            self.current_bubble = None
 
     def hide_dialogue(self):
-        if self.current_bubble:
-            try:
-                self.current_bubble.close()
-                self.current_bubble = None
-            except Exception:
-                pass
+        bubble, self.current_bubble = self.current_bubble, None
+        if bubble is not None and not sip.isdeleted(bubble):
+            bubble.close()

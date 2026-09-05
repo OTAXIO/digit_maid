@@ -1,16 +1,14 @@
+"""待办交互控制：列表、整页编辑和日历联动；样式统一在 ui.theme。"""
+
 from datetime import date
 from copy import deepcopy
-import os
-import sys
 
-from PyQt6.QtCore import QDate, QEvent, QPoint, QRect, QSize, Qt, QTime, QTimer, QPropertyAnimation
-from PyQt6.QtGui import QBrush, QColor, QIcon, QTextCharFormat, QCursor, QTextOption
+from PyQt6.QtCore import QDate, QEvent, QLocale, QPoint, QRect, QSize, Qt, QTime, QTimer, QPropertyAnimation
+from PyQt6.QtGui import QBrush, QColor, QTextCharFormat, QCursor, QTextOption
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
-    QCalendarWidget,
     QFrame,
-    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -23,7 +21,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.core.paths import runtime_root
+from src.domain.todo import normalize_ddl, normalize_task, task_sort_key, parse_editor_text
+from src.ui.theme import P
+from src.ui.theme.styles import TODO
+from src.ui.theme.widgets import character_badge, apply_shadow
+from src.ui.todo_delegate import TodoItemDelegate
+from src.ui.todo_calendar import TodoCalendar
 from src.function.todo_store import (
     MAX_TODO_DATES,
     MAX_TODO_TEXT_CHARS,
@@ -34,14 +37,8 @@ from src.function.todo_store import (
 )
 
 
-WEEKEND_TEXT_COLOR = "#8b0000"
+WEEKEND_TEXT_COLOR = P.weekend
 MAX_TODO_EDITOR_CHARS = MAX_TODO_TEXT_CHARS + 16
-
-
-def _default_ui_font_family():
-    if sys.platform == "darwin":
-        return "PingFang SC"
-    return "Microsoft YaHei"
 
 
 class TodoPanel(QWidget):
@@ -50,7 +47,6 @@ class TodoPanel(QWidget):
         self.owner_widget = parent
         self.on_close_callback = on_close_callback
         self.items_by_date = {}
-        self._marked_dates = []
         self._month_expanded = True
         self._allow_close = False
         self._dragging = False
@@ -66,14 +62,13 @@ class TodoPanel(QWidget):
         self._edit_save_timer.setSingleShot(True)
         self._edit_save_timer.setInterval(600)
         self._edit_save_timer.timeout.connect(self._save_current_editor)
-        self._today_page_size = 6
+        self._today_page_size = 4
         self._today_page_index = 0
         self._today_visible_indexes = []
 
         self.expanded_width = 940
-        self.collapsed_width = 400
+        self.collapsed_width = 440
         self.panel_height = 620
-        self.root_dir = str(runtime_root())
 
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
@@ -81,6 +76,7 @@ class TodoPanel(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setWindowTitle("维维美 · 待办手账")
         self.setMinimumSize(self.collapsed_width, self.panel_height)
         self.setMaximumSize(self.expanded_width, self.panel_height)
         self.resize(self.expanded_width, self.panel_height)
@@ -94,311 +90,8 @@ class TodoPanel(QWidget):
 
         card = QFrame(self)
         card.setObjectName("todo_card")
-        card_style = (
-            """
-            QFrame#todo_card {
-                background-color: #f7f2ef;
-                border: 1px solid #ead8d3;
-                border-radius: 24px;
-            }
-            QFrame#todo_card * {
-                font-family: "__UI_FONT_FAMILY__", "SF Pro Display", "Microsoft YaHei UI";
-                font-weight: 400;
-            }
-            QLabel#title_label {
-                color: #251d1b;
-                font-size: 27px;
-                font-weight: 700;
-            }
-            QLabel#subtitle_label {
-                color: #8b746e;
-                font-size: 12px;
-                font-weight: 400;
-            }
-            QLabel#section_title {
-                color: #392c29;
-                font-size: 14px;
-                font-weight: 600;
-            }
-            QLabel#month_caption {
-                color: #927b75;
-                font-size: 11px;
-                font-weight: 500;
-            }
-            QFrame#section_card {
-                background: #fffdfc;
-                border: 1px solid #eadfdb;
-                border-radius: 18px;
-            }
-            QPushButton#close_btn {
-                min-width: 26px;
-                max-width: 26px;
-                min-height: 26px;
-                max-height: 26px;
-                border: 1px solid #a71d25;
-                border-radius: 13px;
-                background-color: #c7333c;
-                color: #ffffff;
-                font-size: 14px;
-                font-weight: 600;
-            }
-            QPushButton#close_btn:hover {
-                background-color: #df4850;
-            }
-            QPushButton#close_btn:pressed {
-                background-color: #9b2028;
-            }
-            QPushButton#secondary_btn,
-            QPushButton#todo_page_btn {
-                border: 1px solid #e4d3ce;
-                border-radius: 10px;
-                background-color: #fffdfc;
-                color: #674f49;
-                padding: 5px 12px;
-                font-size: 12px;
-                font-weight: 600;
-                min-height: 24px;
-            }
-            QPushButton#secondary_btn:hover,
-            QPushButton#todo_page_btn:hover {
-                background-color: #f5e7e3;
-                border-color: #d6b6af;
-                color: #a2252c;
-            }
-            QPushButton#todo_page_btn {
-                font-size: 11px;
-            }
-            QPushButton#todo_page_btn:disabled {
-                border-color: #eee5e2;
-                color: #c9b9b4;
-                background-color: #faf6f4;
-            }
-            QLabel#todo_page_label {
-                color: #927b75;
-                font-size: 11px;
-                font-weight: 500;
-                min-width: 52px;
-                max-width: 52px;
-                qproperty-alignment: AlignCenter;
-            }
-            QListWidget {
-                background-color: #fbf7f5;
-                border: 1px solid #eee2de;
-                border-radius: 13px;
-                padding: 7px;
-                font-size: 13px;
-                color: #332724;
-                outline: 0;
-            }
-            QListWidget::item {
-                padding: 9px 10px;
-                margin: 2px 0;
-                border-radius: 9px;
-            }
-            QListWidget::item:selected {
-                background-color: #b82931;
-                color: #ffffff;
-            }
-            QLineEdit {
-                background-color: #fffdfc;
-                border: 1px solid #e6d7d2;
-                border-radius: 11px;
-                padding: 9px 11px;
-                color: #332724;
-                font-size: 13px;
-                selection-background-color: #d99a9e;
-                selection-color: #2d2220;
-            }
-            QLineEdit:focus {
-                border: 2px solid #b82931;
-                background-color: #ffffff;
-            }
-            QLineEdit#ddl_input {
-                min-width: 88px;
-                max-width: 88px;
-                padding: 9px 7px;
-                text-align: center;
-            }
-            QFrame#input_card {
-                background: #f8efec;
-                border: 1px solid #eadbd6;
-                border-radius: 15px;
-            }
-            QFrame#task_editor_page {
-                background: #fbf7f5;
-                border: 1px solid #eadbd6;
-                border-radius: 15px;
-            }
-            QLabel#editor_state_badge {
-                color: #8b0000;
-                background: #f3dfdb;
-                border: 1px solid #e4c7c1;
-                border-radius: 9px;
-                padding: 4px 10px;
-                font-size: 11px;
-                font-weight: 700;
-            }
-            QLabel#editor_state_badge[completed="true"] {
-                color: #5d6b60;
-                background: #e8eee8;
-                border-color: #ccd9ce;
-            }
-            QLabel#editor_hint {
-                color: #8b746e;
-                font-size: 11px;
-                font-weight: 400;
-            }
-            QLabel#editor_hint[error="true"] {
-                color: #a71d25;
-                font-weight: 600;
-            }
-            QTextEdit#task_editor {
-                background: #fffdfc;
-                color: #302522;
-                border: 2px solid #d9b7b0;
-                border-radius: 14px;
-                padding: 14px;
-                font-size: 15px;
-                font-weight: 500;
-                selection-background-color: #d99a9e;
-                selection-color: #2d2220;
-            }
-            QTextEdit#task_editor:focus {
-                border-color: #a9242c;
-                background: #ffffff;
-            }
-            QTextEdit#task_editor[completed="true"] {
-                color: #887672;
-                background: #f0ebe9;
-                border-color: #ddd1cd;
-                text-decoration: line-through;
-            }
-            QPushButton#back_to_list_btn {
-                color: #765e58;
-                background: transparent;
-                border: none;
-                padding: 4px 8px;
-                font-size: 12px;
-                font-weight: 600;
-            }
-            QPushButton#back_to_list_btn:hover {
-                color: #8b0000;
-                background: #f3e5e1;
-                border-radius: 8px;
-            }
-            QPushButton#delete_task_btn,
-            QPushButton#complete_task_btn {
-                min-height: 40px;
-                border-radius: 12px;
-                padding: 0 16px;
-                font-size: 13px;
-                font-weight: 700;
-            }
-            QPushButton#delete_task_btn {
-                color: #8b0000;
-                background: #fff8f6;
-                border: 1px solid #dfc3bd;
-            }
-            QPushButton#delete_task_btn:hover {
-                color: #ffffff;
-                background: #a9242c;
-                border-color: #a9242c;
-            }
-            QPushButton#complete_task_btn {
-                color: #ffffff;
-                background: #a9242c;
-                border: 1px solid #a9242c;
-            }
-            QPushButton#complete_task_btn:hover {
-                background: #c03740;
-                border-color: #c03740;
-            }
-            QPushButton#complete_task_btn[completed="true"] {
-                color: #506354;
-                background: #e4ece5;
-                border-color: #c6d5c8;
-            }
-            QPushButton#complete_task_btn[completed="true"]:hover {
-                background: #d7e3d8;
-                border-color: #afc4b2;
-            }
-            QPushButton#icon_action_btn {
-                min-width: 38px;
-                max-width: 38px;
-                min-height: 38px;
-                max-height: 38px;
-                border: 1px solid #e3d1cc;
-                border-radius: 11px;
-                background: #f6e9e5;
-            }
-            QPushButton#icon_action_btn:hover {
-                background-color: #efd9d4;
-                border-color: #d8afa7;
-            }
-            QPushButton#icon_action_btn:pressed {
-                background-color: #e5c7c0;
-            }
-            QCalendarWidget {
-                background-color: #fbf7f5;
-                border: 1px solid #eee2de;
-                border-radius: 13px;
-            }
-            QCalendarWidget QWidget {
-                alternate-background-color: #ffffff;
-            }
-            QCalendarWidget QToolButton {
-                color: #4e3b37;
-                font-size: 13px;
-                font-weight: 600;
-                border: none;
-                min-width: 24px;
-                min-height: 24px;
-                padding: 0px 10px;
-            }
-            QCalendarWidget QToolButton#qt_calendar_prevmonth,
-            QCalendarWidget QToolButton#qt_calendar_nextmonth {
-                min-width: 26px;
-                max-width: 26px;
-                padding: 0;
-            }
-            QCalendarWidget QToolButton#qt_calendar_monthbutton,
-            QCalendarWidget QToolButton#qt_calendar_yearbutton {
-                min-width: 88px;
-                padding: 0 18px 0 8px;
-                text-align: center;
-            }
-            QCalendarWidget QToolButton#qt_calendar_monthbutton::menu-indicator {
-                subcontrol-origin: padding;
-                subcontrol-position: right center;
-                right: 6px;
-                top: 0px;
-            }
-            QCalendarWidget QAbstractItemView:enabled {
-                color: #463632;
-                background-color: #ffffff;
-                selection-background-color: #b82931;
-                selection-color: #ffffff;
-                outline: 0;
-            }
-            QCalendarWidget QAbstractItemView {
-                background-color: #ffffff;
-                alternate-background-color: #ffffff;
-            }
-            QCalendarWidget QWidget#qt_calendar_navigationbar {
-                background-color: #ffffff;
-            }
-            QCalendarWidget QToolButton {
-                background-color: transparent;
-            }
-            """
-        )
-        card.setStyleSheet(card_style.replace("__UI_FONT_FAMILY__", _default_ui_font_family()))
-
-        shadow = QGraphicsDropShadowEffect(card)
-        shadow.setBlurRadius(42)
-        shadow.setOffset(0, 10)
-        shadow.setColor(QColor(55, 25, 22, 75))
-        card.setGraphicsEffect(shadow)
+        card.setStyleSheet(TODO)
+        apply_shadow(card)
 
         card_layout = QVBoxLayout(card)
         card_layout.setContentsMargins(24, 22, 24, 24)
@@ -413,17 +106,22 @@ class TodoPanel(QWidget):
         close_btn.setObjectName("close_btn")
         close_btn.setToolTip("关闭待办")
         close_btn.clicked.connect(self._close_from_symbol)
-        header_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
+        header_layout.addWidget(character_badge(card, 46))
 
         title_column = QVBoxLayout()
         title_column.setSpacing(2)
 
-        title_label = QLabel("待办", card)
+        brand_label = QLabel("VIVI  /  DAILY COMPANION", card)
+        brand_label.setProperty("role", "eyebrow")
+        title_column.addWidget(brand_label)
+
+        title_label = QLabel("待办手账", card)
         title_label.setObjectName("title_label")
         title_column.addWidget(title_label)
 
         self.subtitle_label = QLabel("今日与本月计划", card)
         self.subtitle_label.setObjectName("subtitle_label")
+        self.subtitle_label.setWordWrap(True)
         title_column.addWidget(self.subtitle_label)
 
         header_layout.addLayout(title_column)
@@ -438,6 +136,7 @@ class TodoPanel(QWidget):
         self.today_btn.setObjectName("secondary_btn")
         self.today_btn.clicked.connect(self._go_to_today)
         header_layout.addWidget(self.today_btn)
+        header_layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
 
         card_layout.addWidget(self.header_area)
 
@@ -454,6 +153,10 @@ class TodoPanel(QWidget):
         self.left_title.setObjectName("section_title")
         left_layout.addWidget(self.left_title)
 
+        self.daily_summary = QLabel(left_section)
+        self.daily_summary.setObjectName("daily_summary")
+        left_layout.addWidget(self.daily_summary)
+
         self.daily_stack = QStackedWidget(left_section)
 
         self.task_list_page = QWidget(self.daily_stack)
@@ -468,8 +171,11 @@ class TodoPanel(QWidget):
         self.today_list.setWordWrap(True)
         self.today_list.setTextElideMode(Qt.TextElideMode.ElideNone)
         self.today_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.today_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.today_list.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.today_list.setAccessibleName("每日任务，点击进入编辑")
         self.today_list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.today_list.setItemDelegate(TodoItemDelegate(self.today_list))
+        self.today_list.setMouseTracking(True)
 
         self.today_list.itemClicked.connect(self._on_today_item_selected)
         self.today_list.viewport().installEventFilter(self)
@@ -522,6 +228,7 @@ class TodoPanel(QWidget):
             QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere
         )
         self.task_editor.setPlaceholderText("输入 HH:MM 和待办内容")
+        self.task_editor.setAccessibleName("任务时间与内容")
         self.task_editor.setTabChangesFocus(True)
         self.task_editor.textChanged.connect(self._on_task_editor_text_changed)
         editor_layout.addWidget(self.task_editor, 1)
@@ -576,11 +283,11 @@ class TodoPanel(QWidget):
         self.todo_input.setMaxLength(MAX_TODO_TEXT_CHARS)
         input_action_row.addWidget(self.todo_input, 1)
 
-        self.upload_btn = QPushButton("", left_section)
+        self.upload_btn = QPushButton("+", left_section)
         self.upload_btn.setObjectName("icon_action_btn")
-        self.upload_btn.setToolTip("上传新增事项")
+        self.upload_btn.setToolTip("添加事项（回车）")
+        self.upload_btn.setAccessibleName("添加事项")
         self.upload_btn.clicked.connect(self._submit_todo_input)
-        self._apply_icon_button(self.upload_btn, "upload.png")
         input_action_row.addWidget(self.upload_btn)
 
         left_layout.addWidget(self.input_card)
@@ -597,13 +304,15 @@ class TodoPanel(QWidget):
         month_title.setObjectName("section_title")
         right_layout.addWidget(month_title)
 
-        self.calendar = QCalendarWidget(self.right_section)
+        self.calendar = TodoCalendar(self.right_section)
+        self.calendar.setLocale(QLocale(QLocale.Language.Chinese, QLocale.Country.China))
+        self.calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
         self.calendar.setGridVisible(False)
         self.calendar.setVerticalHeaderFormat(
-            QCalendarWidget.VerticalHeaderFormat.NoVerticalHeader
+            TodoCalendar.VerticalHeaderFormat.NoVerticalHeader
         )
         self.calendar.setHorizontalHeaderFormat(
-            QCalendarWidget.HorizontalHeaderFormat.ShortDayNames
+            TodoCalendar.HorizontalHeaderFormat.ShortDayNames
         )
         weekend_format = QTextCharFormat()
         weekend_format.setForeground(QColor(WEEKEND_TEXT_COLOR))
@@ -624,6 +333,8 @@ class TodoPanel(QWidget):
 
         self.month_list = QListWidget(self.month_section)
         self.month_list.setSelectionMode(QListWidget.SelectionMode.NoSelection)
+        self.month_list.setWordWrap(True)
+        self.month_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         month_section_layout.addWidget(self.month_list)
 
         right_layout.addWidget(self.month_section, 1)
@@ -738,20 +449,6 @@ class TodoPanel(QWidget):
 
     def _persist_items(self):
         return save_todo_items_by_date(self.items_by_date)
-
-    def _resolve_button_icon(self, filename):
-        icon_path = os.path.join(self.root_dir, "resource", "button", filename)
-        return icon_path if os.path.exists(icon_path) else None
-
-    def _apply_icon_button(self, button, filename):
-        icon_path = self._resolve_button_icon(filename)
-        if icon_path:
-            button.setText("")
-            button.setIcon(QIcon(icon_path))
-            button.setIconSize(QSize(20, 20))
-            return
-
-        button.setText(filename.split(".")[0])
 
     def _clear_editing_state(self, clear_input=False, clear_selection=True):
         self._edit_save_timer.stop()
@@ -908,10 +605,12 @@ class TodoPanel(QWidget):
             self._set_status_text("保存失败，修改未生效")
             return False
 
-        self._refresh_today_list()
+        # 切换日期期间只刷新数据标记；空的新日期不能清除旧编辑上下文。
+        if self._selected_date_key() == date_key:
+            self._refresh_today_list()
         self._refresh_calendar_marks()
         self._refresh_month_list()
-        self._set_editor_feedback("✓ 修改已自动保存")
+        self._set_editor_feedback("修改已自动保存")
         self._set_status_text("修改已保存")
         return True
 
@@ -938,88 +637,20 @@ class TodoPanel(QWidget):
     def _default_ddl_text(self):
         return QTime.currentTime().toString("HH:mm")
 
-    def _normalize_ddl_text(self, raw_text):
-        text = str(raw_text).strip().replace("：", ":")
-        if not text:
-            return ""
+    # 保留原方法名作为兼容入口，数据规则只在 domain.todo 中维护一份。
+    _normalize_ddl_text = staticmethod(normalize_ddl)
+    _task_sort_key = staticmethod(task_sort_key)
+    _parse_editor_text = staticmethod(parse_editor_text)
 
-        parts = text.split(":")
-        if len(parts) != 2:
-            return ""
+    @staticmethod
+    def _normalize_task_item(task):
+        return normalize_task(task) or {"ddl": "", "text": "", "completed": False}
 
-        try:
-            hour = int(parts[0])
-            minute = int(parts[1])
-        except ValueError:
-            return ""
-
-        if hour < 0 or hour > 23 or minute < 0 or minute > 59:
-            return ""
-
-        return f"{hour:02d}:{minute:02d}"
-
-    def _split_prefixed_ddl(self, raw_text):
-        text = str(raw_text).strip().replace("：", ":")
-        if not text:
-            return "", ""
-
-        segments = text.split(None, 1)
-        if segments and ":" in segments[0]:
-            normalized_ddl = self._normalize_ddl_text(segments[0])
-            if normalized_ddl:
-                content = segments[1].strip() if len(segments) > 1 else ""
-                return normalized_ddl, content
-
-        return "", text
-
-    def _normalize_task_item(self, task):
-        if isinstance(task, dict):
-            ddl = self._normalize_ddl_text(task.get("ddl", ""))
-            text = str(task.get("text", "")).strip()
-            if len(text) > MAX_TODO_TEXT_CHARS or any(
-                ord(character) < 32 for character in text
-            ):
-                text = ""
-            completed = task.get("completed") is True
-            return {"ddl": ddl, "text": text, "completed": completed}
-
-        ddl, text = self._split_prefixed_ddl(task)
-        if len(text) > MAX_TODO_TEXT_CHARS or any(
-            ord(character) < 32 for character in text
-        ):
-            text = ""
-        return {"ddl": ddl, "text": text, "completed": False}
-
-    def _task_sort_key(self, task):
-        normalized_task = self._normalize_task_item(task)
-        completion_rank = 1 if normalized_task["completed"] else 0
-        ddl = normalized_task["ddl"]
-        if ddl:
-            try:
-                hour_str, minute_str = ddl.split(":", 1)
-                minute_of_day = int(hour_str) * 60 + int(minute_str)
-                return (completion_rank, 0, minute_of_day, normalized_task["text"])
-            except ValueError:
-                pass
-
-        return (completion_rank, 1, 24 * 60, normalized_task["text"])
-
-    def _normalize_task_list(self, raw_items):
-        if isinstance(raw_items, list):
-            source_items = raw_items
-        elif raw_items is None:
-            source_items = []
-        else:
-            source_items = [raw_items]
-
-        normalized_items = []
-        for raw_item in source_items:
-            task = self._normalize_task_item(raw_item)
-            if task["text"]:
-                normalized_items.append(task)
-
-        normalized_items.sort(key=self._task_sort_key)
-        return normalized_items
+    @staticmethod
+    def _normalize_task_list(raw_items):
+        source = raw_items if isinstance(raw_items, list) else ([] if raw_items is None else [raw_items])
+        items = [task for raw in source if (task := normalize_task(raw)) is not None]
+        return sorted(items, key=task_sort_key)
 
     def _ensure_date_items(self, date_key):
         normalized_items = self._normalize_task_list(self.items_by_date.get(date_key, []))
@@ -1073,51 +704,15 @@ class TodoPanel(QWidget):
         if self.today_list.count() <= 0:
             return
 
-        available_width = max(80, self.today_list.viewport().width() - 16)
-        fm = self.today_list.fontMetrics()
-
-        for idx in range(self.today_list.count()):
-            item = self.today_list.item(idx)
-            if item is None:
-                continue
-
-            text_rect = fm.boundingRect(
-                QRect(0, 0, available_width, 1000),
-                Qt.TextFlag.TextWordWrap,
-                item.text(),
-            )
-            target_height = max(34, text_rect.height() + 14)
-            item.setSizeHint(QSize(0, target_height))
+        for index in range(self.today_list.count()):
+            self.today_list.item(index).setSizeHint(QSize(0, 62))
 
     def _display_task_text(self, task):
         normalized_task = self._normalize_task_item(task)
         ddl_text = normalized_task["ddl"] if normalized_task["ddl"] else "--:--"
-        prefix = "✓  " if normalized_task["completed"] else ""
+        prefix = "已完成 · " if normalized_task["completed"] else ""
         return f"{prefix}{ddl_text}  {normalized_task['text']}"
 
-    def _parse_editor_text(self, raw_text, fallback_ddl):
-        text = str(raw_text).replace("\r", "\n").replace("\n", " ").strip()
-        if not text:
-            return "", "", "待办内容不能为空"
-
-        normalized_text = text.replace("：", ":")
-        segments = normalized_text.split(None, 1)
-        if segments and ":" in segments[0]:
-            normalized_ddl = self._normalize_ddl_text(segments[0])
-            if not normalized_ddl:
-                return "", "", "DDL 格式错误，请使用 HH:MM"
-
-            content = segments[1].strip() if len(segments) > 1 else ""
-            if not content:
-                return "", "", "待办内容不能为空"
-            if len(content) > MAX_TODO_TEXT_CHARS:
-                return "", "", f"待办内容不能超过 {MAX_TODO_TEXT_CHARS} 个字符"
-
-            return normalized_ddl, content, ""
-
-        if len(normalized_text) > MAX_TODO_TEXT_CHARS:
-            return "", "", f"待办内容不能超过 {MAX_TODO_TEXT_CHARS} 个字符"
-        return fallback_ddl, normalized_text, ""
 
     def _sync_daily_section_caption(self):
         selected = self._selected_date_qdate()
@@ -1261,12 +856,12 @@ class TodoPanel(QWidget):
         self._refresh_today_list()
         self._refresh_calendar_marks()
         self._refresh_month_list()
-        feedback = "✓ 已标记为完成" if task["completed"] else "✓ 已恢复为未完成"
+        feedback = "已标记为完成" if task["completed"] else "已恢复为未完成"
         if editor_is_open:
             self._apply_task_editor_state(task, feedback=feedback)
             if not task["completed"]:
                 QTimer.singleShot(0, self.task_editor.setFocus)
-        self._set_status_text(feedback.removeprefix("✓ "))
+        self._set_status_text(feedback)
 
     def _delete_selected_item(self):
         self._edit_save_timer.stop()
@@ -1331,6 +926,11 @@ class TodoPanel(QWidget):
         self._today_visible_indexes = []
         today_items = self._ensure_date_items(self._selected_date_key())
         total_items = len(today_items)
+        completed_count = sum(task.get("completed") is True for task in today_items)
+        self.daily_summary.setText(
+            f"{total_items - completed_count:02d} 项待完成    /    {completed_count:02d} 项已完成"
+            if total_items else "今天的空白，留给值得做的事。"
+        )
         self._update_today_pagination_state(total_items)
 
         if not today_items:
@@ -1347,14 +947,16 @@ class TodoPanel(QWidget):
         for model_index in range(start, end):
             task = self._normalize_task_item(today_items[model_index])
             item = QListWidgetItem(self._display_task_text(task))
+            item.setData(Qt.ItemDataRole.UserRole, task)
+            item.setToolTip(self._display_task_text(task))
             flags = Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
             item.setFlags(flags)
             if task["completed"]:
                 completed_font = item.font()
                 completed_font.setStrikeOut(True)
                 item.setFont(completed_font)
-                item.setForeground(QBrush(QColor("#8a6f69")))
-                item.setBackground(QBrush(QColor("#f0e8e5")))
+                item.setForeground(QBrush(QColor(P.completed)))
+                item.setBackground(QBrush(QColor(P.completed_bg)))
             self.today_list.addItem(item)
             self._today_visible_indexes.append(model_index)
 
@@ -1381,7 +983,7 @@ class TodoPanel(QWidget):
             for task in tasks:
                 normalized_task = self._normalize_task_item(task)
                 ddl_text = normalized_task["ddl"] if normalized_task["ddl"] else "--:--"
-                prefix = "✓  " if normalized_task["completed"] else ""
+                prefix = "已完成 · " if normalized_task["completed"] else ""
                 item = QListWidgetItem(
                     f"{prefix}{day.day:02d}日  {ddl_text}  {normalized_task['text']}"
                 )
@@ -1389,95 +991,11 @@ class TodoPanel(QWidget):
                     completed_font = item.font()
                     completed_font.setStrikeOut(True)
                     item.setFont(completed_font)
-                    item.setForeground(QBrush(QColor("#8a6f69")))
+                    item.setForeground(QBrush(QColor(P.completed)))
                 self.month_list.addItem(item)
 
     def _refresh_calendar_marks(self):
-        for marked_date in self._marked_dates:
-            self.calendar.setDateTextFormat(marked_date, QTextCharFormat())
-        self._marked_dates.clear()
-
-        shown_year = self.calendar.yearShown()
-        shown_month = self.calendar.monthShown()
-        first_day = QDate(shown_year, shown_month, 1)
-        if not first_day.isValid():
-            return
-        day_count = first_day.daysInMonth()
-
-        # 日历可视网格里的“非本月”日期统一用浅灰底色。
-        first_week_day = self.calendar.firstDayOfWeek()
-        first_week_day_num = int(getattr(first_week_day, "value", first_week_day))
-        leading_days = (first_day.dayOfWeek() - first_week_day_num + 7) % 7
-        # QCalendarWidget 在 1 号恰好位于每周首列时，会额外显示上一周作为首行。
-        if leading_days == 0:
-            leading_days = 7
-        grid_start = first_day.addDays(-leading_days)
-
-        out_month_format = QTextCharFormat()
-        out_month_format.setBackground(QColor("#f4f0ee"))
-        out_month_format.setForeground(QColor("#a28f89"))
-
-        for idx in range(42):
-            qdate = grid_start.addDays(idx)
-            if qdate.year() == shown_year and qdate.month() == shown_month:
-                continue
-            date_format = QTextCharFormat(out_month_format)
-            if qdate.dayOfWeek() in (6, 7):
-                date_format.setForeground(QColor(WEEKEND_TEXT_COLOR))
-            self.calendar.setDateTextFormat(qdate, date_format)
-            self._marked_dates.append(qdate)
-
-        month_light_format = QTextCharFormat()
-        month_light_format.setBackground(QColor("#fffdfc"))
-        month_light_format.setForeground(QColor("#463632"))
-
-        for day in range(1, day_count + 1):
-            qdate = QDate(shown_year, shown_month, day)
-            date_format = QTextCharFormat(month_light_format)
-            if qdate.dayOfWeek() in (6, 7):
-                date_format.setForeground(QColor(WEEKEND_TEXT_COLOR))
-            self.calendar.setDateTextFormat(qdate, date_format)
-            self._marked_dates.append(qdate)
-
-        task_format = QTextCharFormat()
-        task_format.setBackground(QColor("#f3d9d4"))
-        task_format.setForeground(QColor("#6b2e2f"))
-
-        for date_key, tasks in self.items_by_date.items():
-            if not tasks:
-                continue
-            try:
-                parsed = date.fromisoformat(date_key)
-            except ValueError:
-                continue
-
-            if parsed.year != shown_year or parsed.month != shown_month:
-                continue
-
-            qdate = QDate(parsed.year, parsed.month, parsed.day)
-            date_format = QTextCharFormat(task_format)
-            if qdate.dayOfWeek() in (6, 7):
-                date_format.setForeground(QColor(WEEKEND_TEXT_COLOR))
-            self.calendar.setDateTextFormat(qdate, date_format)
-            self._marked_dates.append(qdate)
-
-        today = QDate.currentDate()
-        if today.year() == shown_year and today.month() == shown_month:
-            today_format = QTextCharFormat()
-            today_format.setBackground(QColor("#e8b4ac"))
-            today_format.setForeground(
-                QColor(WEEKEND_TEXT_COLOR if today.dayOfWeek() in (6, 7) else "#5c2629")
-            )
-            self.calendar.setDateTextFormat(today, today_format)
-            self._marked_dates.append(today)
-
-        selected = self.calendar.selectedDate()
-        if selected.isValid():
-            selected_format = QTextCharFormat()
-            selected_format.setBackground(QColor("#b82931"))
-            selected_format.setForeground(QColor("#ffffff"))
-            self.calendar.setDateTextFormat(selected, selected_format)
-            self._marked_dates.append(selected)
+        self.calendar.refresh_marks(self.items_by_date)
 
     def _on_calendar_page_changed(self, year, month):
         self._refresh_month_caption()

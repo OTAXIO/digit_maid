@@ -6,7 +6,8 @@ from PyQt6.QtGui import QPainter, QColor, QPen, QPainterPath, QFontMetrics
 
 from src.core.paths import runtime_root
 from src.core.numeric import bounded_float
-from .choice_dialog import load_dialog_theme
+from src.menu.layout import radial_layout
+from src.ui.theme import P, load_dialog_theme
 
 
 def _bounded_menu_scale(value):
@@ -81,24 +82,28 @@ class BubbleButton(QPushButton):
         self.setFont(font)
 
         if is_back:
-            bg_color = "#cfcecd"
-            border_color = "#c41c1c"
-            hover_bg = "#8f8f8e"
-            pressed_bg = "#444444"
+            bg_color = P.surface
+            border_color = P.line
+            hover_bg = P.accent_soft
+            pressed_bg = P.inset
+            self.text_color = P.ink
         else:
-            bg_color = "#c41c1c"
-            border_color = "black"
-            hover_bg = "#e32424"
-            pressed_bg = "#a81616"
+            bg_color = P.charcoal
+            border_color = P.charcoal_hover
+            hover_bg = P.accent
+            pressed_bg = P.accent_pressed
+            # 当前选项以浅红底深红字区分，避免红字落在黑底上难以辨认。
+            if self.text_color != "white":
+                bg_color, border_color, hover_bg = P.accent_soft, P.accent, P.surface
 
         radius_px = max(8, self.default_size // 2)
-        border_px = max(2, int(4 * self.ui_scale))
+        border_px = max(1, int(self.ui_scale))
         self.setStyleSheet(f"""
             QPushButton {{
                 background-color: {bg_color};
                 color: {self.text_color};
                 border-radius: {radius_px}px;
-                font-weight: bold;
+                font-weight: 500;
                 font-size: {font_px}px;
                 border: {border_px}px solid {border_color};
             }}
@@ -372,9 +377,6 @@ class CircularMenuWidget(QWidget):
             btn.deleteLater()
         self.buttons.clear()
 
-        btn_half = max(14, int((80 if self.use_image_buttons else 70) * self.menu_scale / 2))
-        R = max(48, int(120 * self.menu_scale))
-
         # 分离常规项和“退出”项
         regular_items = []
         exit_item = None
@@ -415,59 +417,13 @@ class CircularMenuWidget(QWidget):
         if exit_item:
             display_items.append(exit_item)
 
-        n = len(display_items)
-        if n == 1:
-            angles = [math.pi / 2]
-        else:
-            margin = R + btn_half + 10
-
-            can_up = (self.center_pos.y() - screen_geo.top()) >= margin
-            can_down = (screen_geo.bottom() - self.center_pos.y()) >= margin
-            can_left = (self.center_pos.x() - screen_geo.left()) >= margin
-            can_right = (screen_geo.right() - self.center_pos.x()) >= margin
-
-            if can_up and can_left and can_right:
-                # 上方半圆 180° → 0°
-                start_angle = math.pi
-                sweep_angle = -math.pi
-            elif not can_up and can_left and can_right:
-                # 靠上：下方半圆 180° → 360° (左到右)
-                start_angle = math.pi
-                sweep_angle = math.pi
-            elif not can_left and can_up and can_down:
-                # 靠左：右方半圆 90° → -90° (上到下)
-                start_angle = math.pi / 2
-                sweep_angle = -math.pi
-            elif not can_right and can_up and can_down:
-                # 靠右：左方半圆 90° → 270° (上到下)
-                start_angle = math.pi / 2
-                sweep_angle = math.pi
-            elif not can_up and not can_left:
-                # 左上角：右下方 0° → -90° (右到下)
-                start_angle = 0
-                sweep_angle = -math.pi / 2
-            elif not can_up and not can_right:
-                # 右上角：左下方 180° → 270° (左到下)
-                start_angle = math.pi
-                sweep_angle = math.pi / 2
-            elif not can_down and not can_left:
-                # 左下角：右上方 90° → 0° (上到右)
-                start_angle = math.pi / 2
-                sweep_angle = -math.pi / 2
-            elif not can_down and not can_right:
-                # 右下角：左上方 90° → 180° (上到左)
-                start_angle = math.pi / 2
-                sweep_angle = math.pi / 2
-            elif not can_down and can_left and can_right:
-                # 靠下：上方半圆 180° → 0°
-                start_angle = math.pi
-                sweep_angle = -math.pi
-            else:
-                # 兜底：上方半圆
-                start_angle = math.pi
-                sweep_angle = -math.pi
-
-            angles = [start_angle + i * (sweep_angle / (n - 1)) for i in range(n)]
+        effective_scale, positions = radial_layout(
+            (center_local.x(), center_local.y()),
+            (screen_geo.width(), screen_geo.height()),
+            len(display_items),
+            self.menu_scale,
+            80 if self.use_image_buttons else 70,
+        )
 
         for i, item in enumerate(display_items):
             is_special_btn = (item['label'] in ['返回', '退出', '<', '>'])
@@ -485,14 +441,13 @@ class CircularMenuWidget(QWidget):
                 item['label'],
                 is_back=is_special_btn,
                 icon_path=icon_path,
-                ui_scale=self.menu_scale,
+                ui_scale=effective_scale,
                 text_color=text_color,
                 parent=self
             )
 
             # 目标位置（菜单窗口内坐标）
-            tar_x = center_local.x() + R * math.cos(angles[i]) - btn.width() / 2
-            tar_y = center_local.y() - R * math.sin(angles[i]) - btn.height() / 2
+            tar_x, tar_y, angle = positions[i]
 
             # 起始位置（中心点）
             start_x = center_local.x() - btn.width() / 2
@@ -509,7 +464,7 @@ class CircularMenuWidget(QWidget):
             anim.start(QPropertyAnimation.DeletionPolicy.KeepWhenStopped)
 
             setattr(btn, 'anim', anim)
-            btn.set_target_pos(tar_x, tar_y, angles[i])
+            btn.set_target_pos(tar_x, tar_y, angle)
 
             def make_callback(item_meta):
                 def cb():

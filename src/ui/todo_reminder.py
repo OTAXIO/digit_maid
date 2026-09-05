@@ -1,18 +1,15 @@
-"""Persistent DDL reminders and the desktop-visibility guard."""
+"""常驻 DDL 提醒与桌面保护调度；纯时间计算由 domain.reminders 提供。"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta
+from datetime import datetime, timedelta
 import math
 from typing import Callable, Optional
 
 from PyQt6.QtCore import QObject, Qt, QTimer
-from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
-    QGraphicsDropShadowEffect,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -23,105 +20,17 @@ from PyQt6.QtWidgets import (
 
 from src.config import ConfigError, load_todo_reminder_config
 from src.config.loader import DEFAULT_TODO_REMINDER_CONFIG
+from src.ui.theme.styles import REMINDER
+from src.ui.theme.widgets import apply_shadow, keep_on_screen
 from src.function.todo_store import (
-    MAX_TODO_TEXT_CHARS,
     complete_todo_item,
     load_todo_items_by_date,
 )
 
 
-MAX_REMINDER_WINDOW_HOURS = 24.0 * 30
-MAX_SNOOZE_MINUTES = 24 * 60
-
-
-@dataclass(frozen=True)
-class DueTodo:
-    date_key: str
-    ddl: str
-    text: str
-    deadline: datetime
-
-
-def find_due_todos(items_by_date, now: datetime, within_hours: float) -> list[DueTodo]:
-    """Return today's overdue and upcoming tasks inside the requested window.
-
-    Overdue items remain actionable until local midnight. Older dates are not
-    carried forever, which prevents abandoned history from permanently locking
-    the pet out of edge-hiding mode.
-    """
-
-    if not isinstance(items_by_date, dict) or not isinstance(now, datetime):
-        return []
-
-    try:
-        reminder_hours = float(within_hours)
-    except (TypeError, ValueError, OverflowError):
-        return []
-    if not math.isfinite(reminder_hours):
-        return []
-    reminder_hours = max(0.0, min(reminder_hours, MAX_REMINDER_WINDOW_HOURS))
-
-    window_start = datetime.combine(now.date(), time.min).replace(tzinfo=now.tzinfo)
-    try:
-        window_end = now + timedelta(hours=reminder_hours)
-    except OverflowError:
-        window_end = datetime.max.replace(tzinfo=now.tzinfo)
-    matches: list[DueTodo] = []
-
-    for raw_date, raw_tasks in items_by_date.items():
-        try:
-            parsed_date = date.fromisoformat(str(raw_date).strip())
-        except ValueError:
-            continue
-        if not isinstance(raw_tasks, list):
-            continue
-
-        for raw_task in raw_tasks:
-            if not isinstance(raw_task, dict):
-                continue
-            if raw_task.get("completed") is True:
-                continue
-            ddl = str(raw_task.get("ddl", "")).strip()
-            text_value = str(raw_task.get("text", "")).strip()
-            if (
-                len(ddl) != 5
-                or ddl[2] != ":"
-                or not ddl[:2].isdigit()
-                or not ddl[3:].isdigit()
-                or not text_value
-                or len(text_value) > MAX_TODO_TEXT_CHARS
-                or any(ord(character) < 32 for character in text_value)
-            ):
-                continue
-            try:
-                parsed_time = time(int(ddl[:2]), int(ddl[3:]))
-            except (ValueError, OverflowError):
-                continue
-
-            deadline = datetime.combine(parsed_date, parsed_time).replace(tzinfo=now.tzinfo)
-            if window_start <= deadline <= window_end:
-                matches.append(
-                    DueTodo(
-                        date_key=parsed_date.isoformat(),
-                        ddl=parsed_time.strftime("%H:%M"),
-                        text=text_value,
-                        deadline=deadline,
-                    )
-                )
-
-    matches.sort(key=lambda item: (item.deadline, item.text))
-    return matches
-
-
-def _remaining_text(deadline: datetime, now: datetime) -> str:
-    seconds = int((deadline - now).total_seconds())
-    minutes = max(1, (abs(seconds) + 59) // 60)
-    hours, rest = divmod(minutes, 60)
-    if hours:
-        duration = f"{hours} 小时 {rest} 分钟" if rest else f"{hours} 小时"
-    else:
-        duration = f"{rest} 分钟"
-    return f"已超时 {duration}" if seconds < 0 else f"还有 {duration}"
+from src.domain.reminders import (
+    DueTodo, find_due_todos, _remaining_text, MAX_SNOOZE_MINUTES,
+)
 
 
 class TodoReminderDialog(QWidget):
@@ -167,103 +76,18 @@ class TodoReminderDialog(QWidget):
 
         self.card = QFrame(self)
         self.card.setObjectName("reminder_card")
-        self.card.setStyleSheet(
-            """
-            QFrame#reminder_card {
-                background: #fffaf7;
-                border: 1px solid #ead7d2;
-                border-radius: 24px;
-            }
-            QFrame#reminder_card * {
-                font-family: "PingFang SC", "Microsoft YaHei UI", sans-serif;
-                color: #2d2321;
-            }
-            QLabel#eyebrow {
-                color: #bf2b2b;
-                font-size: 11px;
-                font-weight: 700;
-                letter-spacing: 1px;
-            }
-            QLabel#reminder_title {
-                color: #241c1a;
-                font-size: 26px;
-                font-weight: 700;
-            }
-            QLabel#reminder_subtitle {
-                color: #806b66;
-                font-size: 12px;
-                font-weight: 400;
-            }
-            QScrollArea {
-                border: none;
-                background: transparent;
-            }
-            QScrollArea > QWidget > QWidget {
-                background: transparent;
-            }
-            QFrame#urgent_item {
-                background: #fff0ec;
-                border: 2px solid #c62d2d;
-                border-radius: 16px;
-            }
-            QFrame#queued_item {
-                background: #ffffff;
-                border: 1px solid #eadedb;
-                border-radius: 14px;
-            }
-            QLabel#task_time {
-                color: #c62d2d;
-                font-size: 18px;
-                font-weight: 700;
-            }
-            QLabel#task_text {
-                color: #2d2321;
-                font-size: 15px;
-                font-weight: 600;
-            }
-            QLabel#task_remaining {
-                color: #8c716b;
-                font-size: 11px;
-                font-weight: 400;
-            }
-            QPushButton {
-                min-height: 42px;
-                border-radius: 12px;
-                padding: 0 18px;
-                font-size: 13px;
-                font-weight: 600;
-            }
-            QPushButton#complete_btn {
-                color: #ffffff;
-                background: #b82323;
-                border: 1px solid #b82323;
-            }
-            QPushButton#complete_btn:hover { background: #cf3434; }
-            QPushButton#complete_btn:pressed { background: #921b1b; }
-            QPushButton#snooze_btn {
-                color: #634d48;
-                background: #f3e9e5;
-                border: 1px solid #e7d6d1;
-            }
-            QPushButton#snooze_btn:hover { background: #eadbd6; }
-            """
-        )
-
-        shadow = QGraphicsDropShadowEffect(self.card)
-        shadow.setBlurRadius(36)
-        shadow.setOffset(0, 10)
-        shadow.setColor(QColor(55, 25, 22, 85))
-        self.card.setGraphicsEffect(shadow)
+        self.card.setStyleSheet(REMINDER)
+        apply_shadow(self.card)
 
         card_layout = QVBoxLayout(self.card)
         card_layout.setContentsMargins(26, 24, 26, 24)
         card_layout.setSpacing(8)
 
-        eyebrow = QLabel("DDL REMINDER", self.card)
+        eyebrow = QLabel("VIVI  /  DEADLINE REMINDER", self.card)
         eyebrow.setObjectName("eyebrow")
         card_layout.addWidget(eyebrow)
 
-        title = QLabel("有一件事需要你", self.card)
+        title = QLabel("博士，这件事快到时间啦", self.card)
         title.setObjectName("reminder_title")
         card_layout.addWidget(title)
 
@@ -330,6 +154,8 @@ class TodoReminderDialog(QWidget):
             item_layout.addWidget(time_label)
 
             text_label = QLabel(todo.text, item_card)
+            # 待办正文是纯文本，避免 <...> 被 QLabel 自动识别为富文本。
+            text_label.setTextFormat(Qt.TextFormat.PlainText)
             text_label.setObjectName("task_text")
             text_label.setWordWrap(True)
             item_layout.addWidget(text_label)
@@ -351,6 +177,7 @@ class TodoReminderDialog(QWidget):
             area = screen.availableGeometry()
             self.move(area.right() - self.width() - 28, area.top() + 28)
         self.show()
+        keep_on_screen(self)
         self.raise_()
         self.activateWindow()
 
@@ -452,9 +279,14 @@ class TodoReminderManager(QObject):
         self._dialog.show_for_todos(todos, now=now)
 
     def _complete_urgent_todo(self, todo: DueTodo):
+        actions = getattr(self.maid_window, "maid_actions", None)
+        panel = getattr(actions, "todo_panel", None) if actions is not None else None
+        # 提醒窗口也会写同一份数据；先提交编辑草稿，防止刷新吞掉最后一次输入。
+        if panel is not None and panel.isVisible() and not panel._save_current_editor():
+            if self._dialog is not None:
+                self._dialog.subtitle.setText("请先修正待办编辑中的内容，再标记完成。")
+            return
         if complete_todo_item(todo.date_key, todo.ddl, todo.text):
-            actions = getattr(self.maid_window, "maid_actions", None)
-            panel = getattr(actions, "todo_panel", None) if actions is not None else None
             if panel is not None and panel.isVisible():
                 panel.reload_data()
         else:

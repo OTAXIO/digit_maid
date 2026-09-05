@@ -26,6 +26,8 @@ class TodoPanelStyleTests(unittest.TestCase):
         with patch("src.ui.todo_panel.load_todo_items_by_date", return_value={}):
             panel = TodoPanel()
         panel.calendar.setCurrentPage(2026, 9)
+        # 固定选中工作日，避免测试运行当天恰逢周末时被选中态白字覆盖。
+        panel.calendar.setSelectedDate(QDate(2026, 9, 2))
         panel._refresh_calendar_marks()
 
         expected = WEEKEND_TEXT_COLOR
@@ -252,6 +254,42 @@ class TodoPanelStyleTests(unittest.TestCase):
             [{"ddl": "10:15", "text": "新内容", "completed": False}],
         )
         self.assertIs(panel.daily_stack.currentWidget(), panel.task_list_page)
+        panel.deleteLater()
+
+    def test_changing_date_saves_draft_to_original_date(self):
+        today = QDate.currentDate()
+        date_key = today.toString("yyyy-MM-dd")
+        items = {date_key: [{"ddl": "09:30", "text": "旧内容", "completed": False}]}
+        with (
+            patch("src.ui.todo_panel.load_todo_items_by_date", return_value=items),
+            patch("src.ui.todo_panel.save_todo_items_by_date", return_value=True),
+        ):
+            panel = TodoPanel()
+            panel._on_today_item_selected(panel.today_list.item(0))
+            panel.task_editor.setPlainText("10:15 新内容")
+            panel.calendar.setSelectedDate(today.addDays(1))
+        self.assertEqual(panel.items_by_date[date_key][0]["text"], "新内容")
+        self.assertNotIn(today.addDays(1).toString("yyyy-MM-dd"), panel.items_by_date)
+        self.assertIs(panel.daily_stack.currentWidget(), panel.task_list_page)
+        panel.deleteLater()
+
+    def test_invalid_draft_keeps_editor_and_date_until_corrected(self):
+        today = QDate.currentDate()
+        date_key = today.toString("yyyy-MM-dd")
+        items = {date_key: [{"ddl": "09:30", "text": "原内容", "completed": False}]}
+        with (
+            patch("src.ui.todo_panel.load_todo_items_by_date", return_value=items),
+            patch("src.ui.todo_panel.save_todo_items_by_date") as save,
+        ):
+            panel = TodoPanel()
+            panel._on_today_item_selected(panel.today_list.item(0))
+            panel.task_editor.setPlainText("99:99 非法时间")
+            panel.calendar.setSelectedDate(today.addDays(1))
+            panel.complete_btn.click()
+        save.assert_not_called()
+        self.assertEqual(panel.calendar.selectedDate(), today)
+        self.assertIs(panel.daily_stack.currentWidget(), panel.task_editor_page)
+        self.assertFalse(panel.items_by_date[date_key][0]["completed"])
         panel.deleteLater()
 
 
