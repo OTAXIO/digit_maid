@@ -1057,6 +1057,15 @@ class TodoPanel(QWidget):
             self.expand_btn.setText("展开日历")
         self.today_btn.setVisible(self._month_expanded)
 
+    def prepare_for_shutdown(self):
+        """整程序退出前保存编辑草稿，并显式放行窗口关闭事件。"""
+        if not self._save_current_editor():
+            self._set_status_text("修改尚未保存，请修正编辑内容或保存问题后再退出")
+            return False
+        self._stop_drag()
+        self._allow_close = True
+        return True
+
     def _close_from_symbol(self):
         self._stop_drag()
         if self._editing_date_key is not None and not self._save_current_editor():

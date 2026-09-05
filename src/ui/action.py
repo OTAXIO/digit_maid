@@ -130,6 +130,8 @@ class MaidActions:
 
     def on_todo_panel_closed(self):
         self._set_todo_panel_open_state(False)
+        if getattr(self.parent, "is_dying", False):
+            return
         controller = getattr(self.parent, "menu_controller", None)
         menu_open = controller.is_menu_open if controller is not None else False
         if (
@@ -570,6 +572,9 @@ class MaidActions:
             QTimer.singleShot(0, menu.raise_)
             menu.exec(self._shift_menu_anchor_up(global_pos))
 
+            if getattr(self.parent, "is_dying", False):
+                return
+
             if getattr(self.parent, "_custom_scale_adjusting", False):
                 # 预览态下若菜单意外关闭，不要回 idle；保持交互态，允许继续滚轮调节后再手动保存/退出
                 self.parent.menu_interact_mode = True
@@ -685,6 +690,8 @@ class MaidActions:
         
     def on_circular_menu_closed(self):
         self._set_circular_menu_open_state(False)
+        if getattr(self.parent, "is_dying", False):
+            return
         if getattr(self.parent, "_custom_scale_adjusting", False):
             # 预览进行中禁止通过关闭菜单回到 idle，必须走“保存/返回”完成事务
             self.parent.menu_interact_mode = True
@@ -791,16 +798,8 @@ class MaidActions:
         QTimer.singleShot(300, capture_and_restore)
 
     def trigger_quit(self):
-        """播放退出动画后再退出程序"""
-        if getattr(self.parent, "is_dying", False):
-            return
-            
-        self.parent.is_dying = True
-        
-        # 尝试播放 die 动画，如果不成功（缺少配置或文件）则直接退出
-        success = self.parent.play_action("die", force_loop=False)
-        if not success:
-            QApplication.instance().quit()
+        """退出状态、草稿保存与动画兜底由主窗口统一处理。"""
+        return self.parent.request_quit()
 
     def _open_configured_launcher(self, name, dialogue_title):
         self.parent.play_action("open_app")

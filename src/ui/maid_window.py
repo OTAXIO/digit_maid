@@ -15,10 +15,13 @@ from src.ui.dialogue import DialogueSystem
 from src.ui.action import MaidActions
 from src.ui.menu_controller import OptionMenuController
 from src.ui.todo_reminder import TodoReminderManager
+from src.ui.shutdown import ShutdownController
 
 class MaidWindow(QWidget):
     def __init__(self):
         super().__init__()
+        self.is_dying = False
+        self.shutdown_controller = ShutdownController(self)
         self.is_macos = sys.platform == "darwin"
         self.always_on_top = self._load_always_on_top_setting()
 
@@ -227,7 +230,7 @@ class MaidWindow(QWidget):
         return todo_panel is not None and bool(getattr(todo_panel, "isVisible", lambda: False)())
 
     def _operation_allowed(self, operation_name):
-        if self._edge_hidden:
+        if self.is_dying or self._edge_hidden:
             return False
 
         controller = getattr(self, "menu_controller", None)
@@ -395,6 +398,9 @@ class MaidWindow(QWidget):
             return {}
 
     def play_action(self, action_name, force_loop=None, is_flipped=None):
+        # 退出是终态：菜单收尾、落地、待机等迟到回调不能覆盖 die 动画。
+        if self.is_dying and action_name != "die":
+            return False
         # 隐藏态期间只允许维持 hide 动作；其余动作需等点击唤醒后再执行。
         if self._edge_hidden and action_name != "hide":
             return False
@@ -885,6 +891,10 @@ class MaidWindow(QWidget):
                 self._on_action_finished()
 
     def _on_action_finished(self):
+        # 退出判定必须先于隐藏、预览、菜单和下落分支，否则会重播循环动作。
+        if self.is_dying:
+            self.shutdown_controller.finish()
+            return
         if self._edge_hidden:
             self._stop_inactivity_timer(reset_stage=True)
             self.wander_timer.stop()
@@ -936,12 +946,9 @@ class MaidWindow(QWidget):
             if self.current_movie is not None:
                 self.current_movie.start()
         else:
-            if getattr(self, "is_dying", False):
-                QApplication.instance().quit()
-            else:
-                # 非循环动作结束后回到 idle，play_action 内部会自动接管并重新启动计时器
-                if self.current_action != "idle":
-                    self.play_action("idle")
+            # 非循环动作结束后回到 idle，play_action 内部会自动接管并重新启动计时器
+            if self.current_action != "idle":
+                self.play_action("idle")
 
 #--------------------------------待机状态机--------------------------------
     def _on_wander_tick(self):
@@ -1627,8 +1634,21 @@ class MaidWindow(QWidget):
         super().wheelEvent(event)
 
 #--------------------------------窗口控制事件--------------------------------
+    def request_quit(self):
+        return self.shutdown_controller.request_quit()
+
+    def closeEvent(self, event):
+        # 系统关闭窗口（如 Alt+F4）和菜单关闭共用同一条退出路径。
+        if self.shutdown_controller.finished:
+            event.accept()
+        else:
+            event.ignore()
+            self.request_quit()
+
     def force_on_top(self):
         """强制将窗口保持在屏幕最顶层"""
+        if self.is_dying:
+            return
         self.show()
 
         if not self.always_on_top and self.is_macos:

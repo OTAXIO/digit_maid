@@ -213,6 +213,7 @@ class TodoReminderManager(QObject):
     def __init__(self, maid_window):
         super().__init__(maid_window)
         self.maid_window = maid_window
+        self._stopped = False
         self._dialog: Optional[TodoReminderDialog] = None
         self._snoozed_until: Optional[datetime] = None
         self._next_regular_at: Optional[datetime] = None
@@ -228,6 +229,9 @@ class TodoReminderManager(QObject):
         QTimer.singleShot(0, self.check_now)
 
     def check_now(self, now: Optional[datetime] = None):
+        # singleShot 首次检查可能已经入队；停止普通计时器不能撤回该回调。
+        if self._stopped:
+            return
         current_time = now if isinstance(now, datetime) else datetime.now()
         items_by_date = load_todo_items_by_date()
 
@@ -313,6 +317,12 @@ class TodoReminderManager(QObject):
         self._snoozed_until = datetime.now() + timedelta(
             minutes=self.config["snooze_minutes"]
         )
+        self._close_dialog()
+
+    def stop(self):
+        """退出时只停止调度与关闭提醒，不标记完成，也不修改待办数据。"""
+        self._stopped = True
+        self.timer.stop()
         self._close_dialog()
 
     def _close_dialog(self):
