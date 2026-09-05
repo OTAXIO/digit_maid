@@ -24,7 +24,7 @@ services → 操作系统边界           config → 受限 YAML 解析
 | 角色标记、阴影 | `src/ui/theme/widgets.py` | 复用现有素材，路径由 `resource_path` 定位 |
 | 对话气泡 | `src/ui/dialogue.py` | 跟随位置、长消息滚动、计时器销毁 |
 | 环形菜单按钮与交互 | `src/input/circular_menu.py` | 处理点击、动画和历史导航 |
-| 菜单边界几何 | `src/menu/layout.py` | 无 Qt 的四方向半圆排版，防重叠与越界 |
+| 菜单边界几何 | `src/menu/layout.py` | 无 Qt 的固定圆心扇形排版，按屏幕边界调整方向、弧度与缩放 |
 | 每日任务交互 | `src/ui/todo_panel.py` | 列表／编辑切换、保存反馈和日期联动 |
 | 任务卡片绘制 | `src/ui/todo_delegate.py` | 只读委托，不打开行内编辑器 |
 | 日历标记 | `src/ui/todo_calendar.py` | 周末、今天、选中和有任务日期的颜色 |

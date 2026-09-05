@@ -448,6 +448,11 @@ class CircularMenuWidget(QWidget):
 
             # 目标位置（菜单窗口内坐标）
             tar_x, tar_y, angle = positions[i]
+            # 布局按最大按钮尺寸预留空间；图片缺失回退为文字按钮，或尺寸取整
+            # 时，仍需按实际宽高对齐同一圆心，不能直接沿用预留框的左上角。
+            layout_half = (80 if self.use_image_buttons else 70) * effective_scale / 2
+            tar_x += layout_half - btn.width() / 2
+            tar_y += layout_half - btn.height() / 2
 
             # 起始位置（中心点）
             start_x = center_local.x() - btn.width() / 2
