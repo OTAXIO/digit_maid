@@ -34,7 +34,7 @@ BASE = qss('''
 TODO = BASE + qss('''
     QFrame#todo_card { background: $canvas; border: 1px solid $line; border-radius: 22px; }
     QLabel#title_label { font-size: 26px; font-weight: 600; color: $ink; }
-    QLabel#subtitle_label, QLabel#month_caption, QLabel#editor_hint { color: $muted; font-size: 11px; }
+    QLabel#subtitle_label, QLabel#editor_hint { color: $muted; font-size: 11px; }
     QLabel#section_title { font-size: 14px; font-weight: 600; }
     QLabel#daily_summary { color: $muted; font-size: 11px; padding-bottom: 4px; }
     QFrame#section_card { background: $surface; border: 1px solid $line; border-radius: 16px; }
@@ -78,15 +78,23 @@ TODO = BASE + qss('''
     QCalendarWidget { background: transparent; border: none; }
     QCalendarWidget QWidget { alternate-background-color: $surface; }
     QCalendarWidget QToolButton { color: $ink; background: transparent; border: none;
-        padding: 4px 10px; font-size: 12px; font-weight: 500; }
-    QCalendarWidget QToolButton:hover { background: $inset; border-radius: 7px; }
+        border-radius: 8px; padding: 3px 6px; font-size: 16px; font-weight: 600; }
+    QCalendarWidget QToolButton:hover { background: $inset; color: $accent; }
+    QCalendarWidget QToolButton::menu-indicator { image: none; width: 0; }
+    /* QToolButton 文字只能居中，限宽让“年 月”紧凑地并排。 */
+    QCalendarWidget QToolButton#qt_calendar_yearbutton { max-width: 44px; padding: 3px 3px; }
+    QCalendarWidget QToolButton#qt_calendar_monthbutton { max-width: 50px; padding: 3px 3px; }
     QCalendarWidget QToolButton#qt_calendar_prevmonth, QCalendarWidget QToolButton#qt_calendar_nextmonth {
-        min-width: 24px; max-width: 24px; padding: 4px 0; }
-    QCalendarWidget QToolButton#qt_calendar_monthbutton, QCalendarWidget QToolButton#qt_calendar_yearbutton {
-        min-width: 64px; padding: 4px 14px 4px 6px; }
+        min-width: 28px; max-width: 28px; min-height: 28px; max-height: 28px; padding: 0 0 3px 0;
+        border: 1px solid $line; border-radius: 14px; color: $muted; font-size: 18px; font-weight: 400; }
+    QCalendarWidget QToolButton#qt_calendar_prevmonth:hover, QCalendarWidget QToolButton#qt_calendar_nextmonth:hover {
+        background: $accent_soft; border-color: $accent_soft; color: $accent; }
     QCalendarWidget QAbstractItemView:enabled { color: $ink; background: $surface;
-        selection-background-color: $accent; selection-color: $white; outline: 0; }
+        selection-background-color: transparent; selection-color: $ink; outline: 0; }
     QCalendarWidget QWidget#qt_calendar_navigationbar { background: $surface; }
+    QLabel#month_caption { color: $ink; font-size: 12px; font-weight: 600; }
+    QLabel#month_count { color: $muted; font-size: 11px; }
+    QFrame#calendar_divider { background: $line; border: none; min-height: 1px; max-height: 1px; }
 ''', pending_background=translucent_color(P.accent, 24), pending_border=translucent_color(P.accent, 90))
 
 

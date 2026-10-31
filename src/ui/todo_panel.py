@@ -297,13 +297,10 @@ class TodoPanel(QWidget):
         self.right_section = QFrame(card)
         self.right_section.setObjectName("section_card")
         right_layout = QVBoxLayout(self.right_section)
-        right_layout.setContentsMargins(16, 16, 16, 16)
+        right_layout.setContentsMargins(16, 12, 16, 14)
         right_layout.setSpacing(10)
 
-        month_title = QLabel("本月日历", self.right_section)
-        month_title.setObjectName("section_title")
-        right_layout.addWidget(month_title)
-
+        # 导航栏的“年 月”即本区标题，不再单独放一行“本月日历”。
         self.calendar = TodoCalendar(self.right_section)
         self.calendar.setLocale(QLocale(QLocale.Language.Chinese, QLocale.Country.China))
         self.calendar.setFirstDayOfWeek(Qt.DayOfWeek.Monday)
@@ -312,8 +309,9 @@ class TodoPanel(QWidget):
             TodoCalendar.VerticalHeaderFormat.NoVerticalHeader
         )
         self.calendar.setHorizontalHeaderFormat(
-            TodoCalendar.HorizontalHeaderFormat.ShortDayNames
+            TodoCalendar.HorizontalHeaderFormat.SingleLetterDayNames
         )
+        self.calendar.setFixedHeight(242)
         weekend_format = QTextCharFormat()
         weekend_format.setForeground(QColor(WEEKEND_TEXT_COLOR))
         self.calendar.setWeekdayTextFormat(Qt.DayOfWeek.Saturday, weekend_format)
@@ -322,14 +320,25 @@ class TodoPanel(QWidget):
         self.calendar.selectionChanged.connect(self._on_calendar_selection_changed)
         right_layout.addWidget(self.calendar)
 
+        calendar_divider = QFrame(self.right_section)
+        calendar_divider.setObjectName("calendar_divider")
+        right_layout.addWidget(calendar_divider)
+
         self.month_section = QWidget(self.right_section)
         month_section_layout = QVBoxLayout(self.month_section)
         month_section_layout.setContentsMargins(0, 0, 0, 0)
-        month_section_layout.setSpacing(6)
+        month_section_layout.setSpacing(4)
 
+        month_caption_row = QHBoxLayout()
+        month_caption_row.setContentsMargins(2, 0, 2, 0)
         self.month_caption = QLabel("本月待办", self.month_section)
         self.month_caption.setObjectName("month_caption")
-        month_section_layout.addWidget(self.month_caption)
+        month_caption_row.addWidget(self.month_caption)
+        month_caption_row.addStretch(1)
+        self.month_count = QLabel("", self.month_section)
+        self.month_count.setObjectName("month_count")
+        month_caption_row.addWidget(self.month_count)
+        month_section_layout.addLayout(month_caption_row)
 
         self.month_list = QListWidget(self.month_section)
         self.month_list.setItemDelegate(TodoItemDelegate(self.month_list, compact=True))
@@ -971,24 +980,32 @@ class TodoPanel(QWidget):
         self._update_today_item_size_hints()
 
     def _refresh_month_caption(self):
-        year = self.calendar.yearShown()
         month = self.calendar.monthShown()
-        self.month_caption.setText(f"{year}年{month}月待办")
+        self.month_caption.setText(f"{month} 月待办")
 
     def _refresh_month_list(self):
         self.month_list.clear()
         year = self.calendar.yearShown()
         month = self.calendar.monthShown()
         entries = self._month_entries(year, month)
+        all_tasks = [task for _, tasks in entries for task in tasks]
+        completed_count = sum(task.get("completed") is True for task in all_tasks)
+        self.month_count.setText(
+            f"{len(all_tasks) - completed_count} 待完成 · {completed_count} 已完成" if all_tasks else ""
+        )
 
         if not entries:
-            placeholder = QListWidgetItem("本月暂无待办")
+            placeholder = QListWidgetItem("这个月还没有安排")
             placeholder.setFlags(Qt.ItemFlag.NoItemFlags)
+            placeholder.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            placeholder.setForeground(QBrush(QColor(P.faint)))
             self.month_list.addItem(placeholder)
             return
 
+        today = date.today()
+        weekday_names = "一二三四五六日"
         for day, tasks in entries:
-            for task in tasks:
+            for task_index, task in enumerate(tasks):
                 normalized_task = self._normalize_task_item(task)
                 ddl_text = normalized_task["ddl"] if normalized_task["ddl"] else "--:--"
                 prefix = "已完成 · " if normalized_task["completed"] else ""
@@ -996,6 +1013,13 @@ class TodoPanel(QWidget):
                     f"{prefix}{day.day:02d}日  {ddl_text}  {normalized_task['text']}"
                 )
                 item.setData(Qt.ItemDataRole.UserRole, normalized_task)
+                # 同一天的多条事项只在首条显示日期，列表按天分组更易扫读。
+                item.setData(TodoItemDelegate.DAY_ROLE, {
+                    "day": day.day,
+                    "weekday": f"周{weekday_names[day.weekday()]}",
+                    "is_today": day == today,
+                    "show_date": task_index == 0,
+                })
                 item.setToolTip(item.text())
                 if normalized_task["completed"]:
                     completed_font = item.font()
@@ -1030,7 +1054,7 @@ class TodoPanel(QWidget):
         self._sync_daily_section_caption()
         self._refresh_today_list()
         self._refresh_calendar_marks()
-        self.subtitle_label.setText(f"选中日期: {selected.toString('yyyy-MM-dd')}（已与月份待办同步）")
+        self.subtitle_label.setText(f"已切换到 {selected.toString('yyyy-MM-dd')}")
 
     def reload_data(self):
         self.items_by_date = load_todo_items_by_date()
